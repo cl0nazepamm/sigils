@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>sigils — chrome demo</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; height: 100%; background: #0b0b0d; overflow: hidden; }
+      #info {
+        position: fixed; left: 12px; bottom: 12px; z-index: 10;
+        font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+        color: #8a8a93; pointer-events: none; user-select: none;
+      }
+      #info b { color: #cfcfd6; }
+      #panel {
+        position: fixed; top: 14px; right: 14px; z-index: 20;
+        width: min(320px, calc(100vw - 28px)); max-height: calc(100vh - 28px);
+        overflow: auto; padding: 14px;
+        color: #e9e6dc; background: rgba(14, 14, 15, 0.78);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 8px; backdrop-filter: blur(14px);
+        box-shadow: 0 18px 54px rgba(0, 0, 0, 0.42);
+        font: 12px/1.35 ui-monospace, Menlo, Consolas, monospace;
+      }
+      #panel h2 {
+        margin: 0 0 12px; font: 700 13px/1 ui-monospace, Menlo, Consolas, monospace;
+        color: #fff; letter-spacing: 0; text-transform: uppercase;
+      }
+      .control-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.12); }
+      .control-section:first-of-type { margin-top: 0; padding-top: 0; border-top: 0; }
+      .section-title { margin: 0 0 10px; color: #9fa0a7; font-weight: 700; }
+      .control-row { display: grid; grid-template-columns: 88px 1fr 58px; gap: 8px; align-items: center; margin: 8px 0; }
+      .control-row label { color: #c5c2bb; white-space: nowrap; }
+      .control-row input[type="range"] { width: 100%; accent-color: #d8d3c8; }
+      .control-row input[type="number"], .control-row select {
+        width: 100%; box-sizing: border-box; color: #f7f5ef; background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.16); border-radius: 4px; padding: 4px 5px;
+        font: inherit;
+      }
+      .control-row select { grid-column: 2 / 4; }
+      .control-row input:focus, .control-row select:focus { outline: 2px solid rgba(230,225,212,0.42); outline-offset: 1px; }
+    </style>
+  </head>
+  <body>
+    <form id="panel" autocomplete="off">
+      <h2>Sigil controls</h2>
+      <div id="controls"></div>
+    </form>
+    <div id="info">
+      <b>sigils</b> — drag to orbit · scroll to zoom<br />
+      keys: <b>1–6</b> spiro preset · <b>[ ]</b> peak · <b>- =</b> roughness · <b>r</b> cycle
+    </div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
