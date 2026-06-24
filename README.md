@@ -163,6 +163,16 @@ Want to draw your own stroke? Open `/draw.html` on the dev server — left-drag 
 sketch a curve, release to forge it into chrome. Strokes accumulate, and the
 **Symmetry** control turns a single stroke into a full radial emblem.
 
+### Realtime GPU-SDF demo
+
+`/realtime.html` is the state-of-the-art path: the sigil is **never meshed on the
+CPU**. Your strokes become a segment buffer, and a single TSL material evaluates
+the whole emblem as a signed-distance field every frame — kaleidoscope symmetry
+by domain-folding, a smooth-union (`smin`) melt, dome displacement with analytic
+normals, and a per-pixel silhouette. Drawing, symmetry, mirror, width, melt, peak
+and roughness are all live uniforms; nothing rebuilds, so the chrome forges under
+your cursor as you draw at 60–120 fps.
+
 ## Notes
 
 - The distance field is brute-force (grid × segments). For very high resolution
