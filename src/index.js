@@ -6,10 +6,11 @@
  */
 
 // High-level
-export { createSigil } from './createSigil.js';
+export { createSigil, createSigilAsync } from './createSigil.js';
 
 // Geometry pipeline (compose your own)
-export { buildSigilGeometry } from './buildGeometry.js';
+export { buildSigilGeometry, buildSigilGeometryAsync } from './buildGeometry.js';
+export { buildGpuDistanceField } from './gpuDistanceField.js';
 export { spirograph } from './spirograph.js';
 export { radialSymmetry } from './symmetry.js';
 export { DistanceField } from './distanceField.js';

@@ -4,6 +4,7 @@ import type {
   ColorRepresentation,
 } from 'three';
 import type { MeshStandardNodeMaterial } from 'three/webgpu';
+import type { WebGPURenderer } from 'three/webgpu';
 
 export type Pt2 = [number, number];
 export type Polyline = Pt2[];
@@ -43,6 +44,12 @@ export interface ShapeOptions {
   heightSmooth?: number;
   /** Solid base depth; 0 = open shell (top surface only). @default 0 */
   base?: number;
+  /** Distance-field backend. Async builds can use WebGPU compute. @default 'cpu' */
+  fieldBackend?: 'cpu' | 'gpu' | 'hybrid';
+  /** Required for async WebGPU distance-field builds. */
+  renderer?: WebGPURenderer;
+  /** Called when async GPU field generation falls back to CPU. */
+  onGpuFallback?: (error: Error) => void;
 }
 
 export interface ChromeOptions {
@@ -73,13 +80,27 @@ export interface SigilMesh extends Mesh {
       material: ChromeNodeMaterial;
       uniforms: ChromeNodeMaterial['sigilUniforms'];
       rebuild(paths?: PathInput, opts?: SigilOptions): SigilMesh;
+      rebuildAsync(paths?: PathInput, opts?: SigilOptions): Promise<SigilMesh>;
     };
   };
 }
 
 export function createSigil(paths: PathInput, opts?: SigilOptions): SigilMesh;
+export function createSigilAsync(paths: PathInput, opts?: SigilOptions): Promise<SigilMesh>;
 
 export function buildSigilGeometry(paths: PathInput, opts?: ShapeOptions): BufferGeometry;
+export function buildSigilGeometryAsync(paths: PathInput, opts?: ShapeOptions): Promise<BufferGeometry>;
+export function buildGpuDistanceField(
+  renderer: WebGPURenderer,
+  paths: PathInput,
+  opts?: {
+    resolution?: number;
+    margin?: number;
+    smooth?: number;
+    taper?: number;
+    taperPower?: number;
+  },
+): Promise<DistanceField>;
 
 export function spirograph(opts?: {
   R?: number;

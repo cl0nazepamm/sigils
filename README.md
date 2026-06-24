@@ -4,17 +4,20 @@ Procedural **chrome-sigil meshes** for [three.js](https://threejs.org/). Feed it
 stroke (or a few), and it grows a symmetric, rounded, mirror-finish emblem — the
 look of liquid-chrome lettering and occult sigils.
 
-The geometry is built on the CPU; the displacement, surface normals and chrome
-shading are all expressed in **TSL** (Three Shading Language), so the silhouette
-can be reused while the look stays fully parametric on the GPU.
+The default geometry path is synchronous CPU code. The async hybrid path can
+rasterize the raw distance field with WebGPU compute, then keeps
+marching-squares topology on the CPU. Displacement, surface normals and chrome
+shading are expressed in **TSL** (Three Shading Language), so the silhouette can
+be reused while the look stays parametric on the GPU.
 
-> Requires a `WebGPURenderer` (TSL node materials). It falls back to WebGL2
-> automatically where WebGPU is unavailable.
+> The chrome material and hybrid field path target `WebGPURenderer`. The async
+> hybrid builder falls back to CPU field rasterization if GPU compute/readback is
+> unavailable.
 
 ## Pipeline
 
 ```
-strokes ─▶ radial symmetry ─▶ distance field ─▶ filled marching squares
+strokes ─▶ radial symmetry ─▶ distance field (CPU or WebGPU compute) ─▶ filled marching squares
         ─▶ sigilize blur ─▶ boundary height ─▶ solidify (dome + walls + base)
         ─▶ BufferGeometry
                                               │
@@ -74,6 +77,27 @@ scene.add(sigil);
 `stroke` is a polyline. Accepted shapes: `[[x,y], ...]`, `[{x,y}, ...]`,
 a flat `[x0,y0,x1,y1,...]`, or an array of any of those for multiple strokes.
 
+### Hybrid WebGPU field
+
+Use the async API when you want WebGPU compute to build the raw distance/taper
+field. The generated mesh is the same `BufferGeometry`; `geometry.userData`
+records whether that build used `gpu` or fell back to `cpu`.
+
+```js
+import { createSigilAsync } from 'sigils';
+
+const sigil = await createSigilAsync(stroke, {
+  renderer,
+  fieldBackend: 'hybrid',
+  thickness: 0.16,
+  resolution: 460,
+  sigilize: 36,
+  depthMode: 'boundary',
+});
+
+console.log(sigil.geometry.userData.fieldBackend); // 'gpu' or 'cpu'
+```
+
 ### Live tweaks (no rebuild)
 
 ```js
@@ -95,6 +119,8 @@ sigil.userData.sigil.rebuild(newStroke, { symmetry: 8, thickness: 0.2 });
 ```js
 import {
   buildSigilGeometry,   // strokes -> BufferGeometry (with aDepth/aGrad/aNormal/aDome)
+  buildSigilGeometryAsync, // optional WebGPU compute distance-field backend
+  buildGpuDistanceField, // raw WebGPU distance/taper field + CPU readback
   createChromeMaterial, // TSL chrome NodeMaterial
   spirograph,           // hypotrochoid stroke (cusps + loops)
   radialSymmetry,       // strokes -> N rotated copies
@@ -132,6 +158,10 @@ npm run example
 
 Drag to orbit. Keys: `1–6` spirograph preset · `[ ]` peak height · `- =`
 roughness · `r` cycle presets.
+
+Want to draw your own stroke? Open `/draw.html` on the dev server — left-drag to
+sketch a curve, release to forge it into chrome. Strokes accumulate, and the
+**Symmetry** control turns a single stroke into a full radial emblem.
 
 ## Notes
 

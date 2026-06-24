@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
-import { createSigil, updateChromeMaterial, spirograph } from '../src/index.js';
+import { createSigilAsync, updateChromeMaterial, spirograph } from '../src/index.js';
 
 // ---------------------------------------------------------------- renderer ---
 const renderer = new THREE.WebGPURenderer({ antialias: true });
@@ -52,6 +52,7 @@ const GLYPHS = [
 
 const state = {
   glyph: 0,
+  backend: 'hybrid',
   thickness: 0.16,
   smooth: 3,
   taperPower: 1.05,
@@ -73,6 +74,7 @@ const CONTROL_GROUPS = [
     title: 'Shape',
     controls: [
       { key: 'glyph', label: 'Glyph', type: 'select', options: GLYPHS.map((g, i) => [String(i), g.name]) },
+      { key: 'backend', label: 'Backend', type: 'select', valueType: 'string', options: [['hybrid', 'hybrid gpu'], ['cpu', 'cpu']] },
       { key: 'thickness', label: 'Width', min: 0.04, max: 0.32, step: 0.005 },
       { key: 'smooth', label: 'Field blur', min: 0, max: 8, step: 1 },
       { key: 'taperPower', label: 'Tip taper', min: 0.35, max: 2.4, step: 0.01 },
@@ -97,15 +99,15 @@ const CONTROL_GROUPS = [
   },
 ];
 
-function rebuild() {
-  if (sigil) {
-    scene.remove(sigil);
-    sigil.geometry.dispose();
-    sigil.material.dispose();
-  }
-  sigil = createSigil(GLYPHS[state.glyph].paths, {
+let rebuildVersion = 0;
+
+async function rebuild() {
+  const version = ++rebuildVersion;
+  const nextSigil = await createSigilAsync(GLYPHS[state.glyph].paths, {
     thickness: state.thickness,
     resolution: 460,
+    fieldBackend: state.backend,
+    renderer,
     smooth: state.smooth,
     taper: 1,         // open ends resolve to sharp points
     taperPower: state.taperPower,
@@ -120,8 +122,24 @@ function rebuild() {
     roughness: state.roughness,
     color: 0xffffff,
     envMapIntensity: 1.6,
+    onGpuFallback: (error) => console.warn('sigils: hybrid field fallback', error),
   });
+
+  if (version !== rebuildVersion) {
+    nextSigil.geometry.dispose();
+    nextSigil.material.dispose();
+    return;
+  }
+
+  if (sigil) {
+    scene.remove(sigil);
+    sigil.geometry.dispose();
+    sigil.material.dispose();
+  }
+
+  sigil = nextSigil;
   scene.add(sigil);
+  window.__sigilFieldBackend = sigil.geometry.userData.fieldBackend;
 }
 rebuild();
 
@@ -168,7 +186,7 @@ function buildControls() {
         select.value = String(state[spec.key]);
         select.addEventListener('change', () => {
           if (!controlsReady) return;
-          state[spec.key] = Number(select.value);
+          state[spec.key] = spec.valueType === 'string' ? select.value : Number(select.value);
           rebuild();
         });
         row.appendChild(select);
@@ -256,6 +274,7 @@ addEventListener('keydown', (e) => {
 
 // look-only changes: update uniforms, no geometry rebuild
 function live() {
+  if (!sigil) return;
   updateChromeMaterial(sigil.material, { peakHeight: state.peak, roughness: state.roughness });
 }
 

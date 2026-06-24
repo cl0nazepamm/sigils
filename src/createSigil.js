@@ -7,7 +7,7 @@
  */
 
 import { Mesh } from 'three';
-import { buildSigilGeometry } from './buildGeometry.js';
+import { buildSigilGeometry, buildSigilGeometryAsync } from './buildGeometry.js';
 import { createChromeMaterial } from './tsl/chromeMaterial.js';
 
 /**
@@ -18,6 +18,24 @@ import { createChromeMaterial } from './tsl/chromeMaterial.js';
 export function createSigil(paths, opts = {}) {
   const geometry = buildSigilGeometry(paths, opts);
   const material = createChromeMaterial(opts);
+  return createSigilMesh(paths, opts, geometry, material);
+}
+
+/**
+ * Async convenience constructor. Use this when `opts.fieldBackend` is `'gpu'`
+ * or `'hybrid'` so the raw distance-field pass can run as WebGPU compute.
+ *
+ * @param {*} paths - one stroke or an array of strokes
+ * @param {object} [opts] - merged shape + look options
+ * @returns {Promise<Mesh>}
+ */
+export async function createSigilAsync(paths, opts = {}) {
+  const geometry = await buildSigilGeometryAsync(paths, opts);
+  const material = createChromeMaterial(opts);
+  return createSigilMesh(paths, opts, geometry, material);
+}
+
+function createSigilMesh(paths, opts, geometry, material) {
   const mesh = new Mesh(geometry, material);
   mesh.name = 'Sigil';
 
@@ -27,6 +45,12 @@ export function createSigil(paths, opts = {}) {
     /** Rebuild geometry for new shape options (keeps the same material). */
     rebuild(nextPaths = paths, nextOpts = opts) {
       const next = buildSigilGeometry(nextPaths, nextOpts);
+      mesh.geometry.dispose();
+      mesh.geometry = next;
+      return mesh;
+    },
+    async rebuildAsync(nextPaths = paths, nextOpts = opts) {
+      const next = await buildSigilGeometryAsync(nextPaths, nextOpts);
       mesh.geometry.dispose();
       mesh.geometry = next;
       return mesh;

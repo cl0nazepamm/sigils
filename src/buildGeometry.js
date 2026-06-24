@@ -19,6 +19,7 @@ import { toPathSet, resampleByLength, boundsOf } from './internal/paths.js';
 import { radialSymmetry } from './symmetry.js';
 import { DistanceField } from './distanceField.js';
 import { fillRegion } from './fillRegion.js';
+import { buildGpuDistanceField } from './gpuDistanceField.js';
 
 /**
  * @param {*} paths - one stroke or an array of strokes (see toPathSet)
@@ -37,9 +38,52 @@ import { fillRegion } from './fillRegion.js';
  * @param {'boundary'|'centerline'} [opts.depthMode='boundary'] - height field source
  * @param {number}  [opts.edgeFalloff]   - boundary distance that reaches full height
  * @param {number}  [opts.base=0]        - solid base depth (0 = open shell, top only)
+ * @param {'cpu'}    [opts.fieldBackend='cpu'] - sync builds always use CPU field rasterization
  * @returns {BufferGeometry}
  */
 export function buildSigilGeometry(paths, opts = {}) {
+  const prepared = prepareFieldInput(paths, opts);
+  const field = new DistanceField(prepared.set, prepared.fieldOpts);
+  const geo = finishSigilGeometry(field, prepared, opts);
+  geo.userData.fieldBackend = 'cpu';
+  return geo;
+}
+
+/**
+ * Async geometry build that can move raw distance-field rasterization to WebGPU.
+ * Marching squares and solidification stay CPU-side because they emit variable
+ * topology.
+ *
+ * @param {*} paths - one stroke or an array of strokes (see toPathSet)
+ * @param {object} [opts]
+ * @param {'cpu'|'gpu'|'hybrid'} [opts.fieldBackend='cpu']
+ * @param {import('three/webgpu').WebGPURenderer} [opts.renderer]
+ * @param {(error: Error) => void} [opts.onGpuFallback]
+ * @returns {Promise<BufferGeometry>}
+ */
+export async function buildSigilGeometryAsync(paths, opts = {}) {
+  const prepared = prepareFieldInput(paths, opts);
+  const wantsGpu = opts.fieldBackend === 'gpu' || opts.fieldBackend === 'hybrid';
+  let field = null;
+  let backend = 'cpu';
+
+  if (wantsGpu && opts.renderer) {
+    try {
+      field = await buildGpuDistanceField(opts.renderer, prepared.set, prepared.fieldOpts);
+      backend = 'gpu';
+    } catch (error) {
+      if (opts.onGpuFallback) opts.onGpuFallback(error);
+      else console.warn('sigils: GPU distance field failed; falling back to CPU.', error);
+    }
+  }
+
+  if (!field) field = new DistanceField(prepared.set, prepared.fieldOpts);
+  const geo = finishSigilGeometry(field, prepared, opts);
+  geo.userData.fieldBackend = backend;
+  return geo;
+}
+
+function prepareFieldInput(paths, opts) {
   const { symmetry = 1, phase = 0, mirror = false, resolution = 240 } = opts;
 
   // 1) symmetry. Resample fine enough that the curve itself never facets along
@@ -61,13 +105,22 @@ export function buildSigilGeometry(paths, opts = {}) {
   const smooth = opts.smooth ?? 3; // only smooths height/normals; outline stays sharp
   const taper = opts.taper ?? 1;
   const taperPower = opts.taperPower ?? 0.6;
-  const field = new DistanceField(set, {
-    resolution,
-    margin: threshold * 1.5,
+  return {
+    set,
+    threshold,
     smooth,
-    taper,
-    taperPower,
-  });
+    fieldOpts: {
+      resolution,
+      margin: threshold * 1.5,
+      smooth,
+      taper,
+      taperPower,
+    },
+  };
+}
+
+function finishSigilGeometry(field, prepared, opts) {
+  const { threshold, smooth } = prepared;
   const region = fillRegion(field, threshold);
 
   if (region.count === 0) {
