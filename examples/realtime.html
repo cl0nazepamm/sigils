@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="data:," />
-    <title>sigils — realtime GPU SDF</title>
+    <title>sigils — sparse realtime chrome curves</title>
     <style>
       :root { color-scheme: dark; }
       html, body { margin: 0; height: 100%; background: #0b0b0d; overflow: hidden; }
@@ -52,7 +52,7 @@
   <body>
     <div id="panel">
       <h2>Realtime sigil</h2>
-      <p class="sub">GPU SDF · no rebuild · live while drawing</p>
+      <p class="sub">sparse chrome curves · live while drawing</p>
       <div class="control-row">
         <label for="symmetry">Symmetry</label>
         <input id="symmetry" type="range" min="1" max="12" step="1" value="6" />
@@ -68,7 +68,7 @@
         <output id="thickness-out">0.07</output>
       </div>
       <div class="control-row">
-        <label for="melt">Fuse</label>
+        <label for="melt">Spread</label>
         <input id="melt" type="range" min="0" max="0.20" step="0.005" value="0.00" />
         <output id="melt-out">0.00</output>
       </div>
@@ -128,7 +128,7 @@
       <div class="note">Left-drag to draw — the chrome grows under your cursor. Every slider is live. Right-drag orbits, scroll zooms.</div>
     </div>
     <div id="info">
-      <b>sigils</b> — realtime GPU SDF · draw and watch it forge live<br />
+      <b>sigils</b> — sparse realtime chrome curves<br />
       <span id="stats">—</span>
     </div>
     <script type="module" src="./realtime.js"></script>
