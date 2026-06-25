@@ -62,6 +62,10 @@ export interface ShapeOptions {
   boundaryFalloffNorm?: number;
   /** Grid margin beyond the stroke bounds. */
   gridBuffer?: number;
+  /** Grid margin as a multiple of the threshold when gridBuffer is unset. @default 1.5 */
+  gridBufferFactor?: number;
+  /** Field grid cells across the largest dimension, preferred by resident field builds. */
+  fieldResolution?: number;
   /** Optional reference position for point culling. */
   referencePoint?: Pt2;
   /** Keep stroke points with distance greater than this value. */

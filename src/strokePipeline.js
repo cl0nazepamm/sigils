@@ -158,7 +158,9 @@ export function prepareStrokes(paths, opts = {}) {
   const smooth = opts.smooth ?? 3;
   const taper = opts.taper ?? 1;
   const taperPower = opts.taperPower ?? 0.6;
-  const margin = opts.gridBuffer ?? opts.margin ?? threshold * 1.5;
+  const margin = opts.gridBuffer
+    ?? opts.margin
+    ?? threshold * (opts.gridBufferFactor ?? 1.5);
 
   return {
     set,

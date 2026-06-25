@@ -24,10 +24,60 @@ export const meta = {
   hint: 'Meshless SDF raymarch · field stays on the GPU, no mesh build',
 };
 
-// Field resolution used for the cheap live rebuilds while dragging; the release
-// rebuild uses the full state.resolution. Lower = faster live redraw, coarser
-// silhouette mid-stroke (it sharpens on release).
-const DRAFT_RESOLUTION = 140;
+const LIVE_REBUILD_MIN_MS = 80;
+const MESHLESS_IGNORED_CONTROLS = new Set([
+  'backend',
+  'base',
+  'depthMode',
+  'sigilize',
+  'sigilizeWeight',
+  'heightSmooth',
+  'heightSmoothWeight',
+  'taperLen',
+  'previewTaperPower',
+  'tipRadius',
+  'ridgePower',
+  'bevel',
+  'previewHeightSmooth',
+  'previewHeightSmoothWeight',
+  'previewResample',
+  'simplify',
+]);
+const MESHLESS_CONTROL_SPECS = compactControlSpecs(DEMO_CONTROL_SPECS, MESHLESS_IGNORED_CONTROLS);
+
+function compactControlSpecs(specs, ignored) {
+  const out = [];
+  let sectionStart = -1;
+  let sectionHasControl = false;
+
+  const closeEmptySection = () => {
+    if (sectionStart >= 0 && !sectionHasControl) out.splice(sectionStart);
+    sectionStart = -1;
+    sectionHasControl = false;
+  };
+
+  for (const spec of specs) {
+    if (spec.type === 'section' || spec.type === 'details') {
+      closeEmptySection();
+      sectionStart = out.length;
+      out.push(spec);
+      continue;
+    }
+
+    if (spec.type === 'hostReset') {
+      closeEmptySection();
+      out.push(spec);
+      continue;
+    }
+
+    if (ignored.has(spec.key)) continue;
+    out.push(spec);
+    sectionHasControl = true;
+  }
+
+  closeEmptySection();
+  return out;
+}
 
 export function mount(ctx, { panelRoot, infoRoot }) {
   const { THREE, renderer, scene, camera, controls } = ctx;
@@ -75,7 +125,7 @@ export function mount(ctx, { panelRoot, infoRoot }) {
   let builtSmooth = null;
   let builtProfile = null;
 
-  const controlUi = mountControlPanel(controlsRoot, DEMO_CONTROL_SPECS, state, {
+  const controlUi = mountControlPanel(controlsRoot, MESHLESS_CONTROL_SPECS, state, {
     onChange: (key) => {
       if (key === 'guides') refreshGuides();
       refreshPreview();
@@ -191,18 +241,27 @@ export function mount(ctx, { panelRoot, infoRoot }) {
   // rebuilt as fast as the GPU can finish, never piling up, and because runRebuild
   // reads allStrokes() (incl. the in-progress stroke) the raymarched surface tracks
   // the pen in real time instead of only appearing on release.
-  let liveScheduled = false;
+  let liveQueued = false;
+  let liveRebuildTimer = 0;
+  let lastLiveRebuildStart = 0;
   function scheduleLiveRebuild() {
-    if (liveScheduled) return;
-    liveScheduled = true;
-    building = building.then(runLive, runLive);
+    if (liveQueued) return;
+    liveQueued = true;
+    const wait = Math.max(0, LIVE_REBUILD_MIN_MS - (performance.now() - lastLiveRebuildStart));
+    liveRebuildTimer = setTimeout(() => {
+      building = building.then(runLive, runLive);
+    }, wait);
   }
   function runLive() {
-    liveScheduled = false;
+    liveQueued = false;
+    lastLiveRebuildStart = performance.now();
     return runRebuild();
   }
 
   async function runRebuild() {
+    let field = null;
+    const previousPool = pool;
+    if (signal.aborted) return;
     try {
       lastError = '';
       // allStrokes() includes the in-progress stroke while drawing, so live
@@ -218,14 +277,8 @@ export function mount(ctx, { panelRoot, infoRoot }) {
       }
 
       const version = ++rebuildVersion;
-      // While dragging, build at a lower DRAFT resolution so each live rebuild is
-      // cheap; the release rebuild (drawing === false) uses full state.resolution.
       const buildOpts = shapeOptionsFromState(state);
-      if (drawing) {
-        buildOpts.resolution = DRAFT_RESOLUTION;
-        buildOpts.fieldResolution = DRAFT_RESOLUTION;
-      }
-      const field = await buildResidentField(renderer, active, buildOpts, pool);
+      field = await buildResidentField(renderer, active, buildOpts, pool);
 
       // Discard results that an unmount or a newer rebuild has superseded.
       if (version !== rebuildVersion || signal.aborted) {
@@ -241,8 +294,6 @@ export function mount(ctx, { panelRoot, infoRoot }) {
         return;
       }
 
-      pool = field;
-
       // Recreate the material only when its storage bindings or build-time
       // branch (profile) are stale; otherwise update grid uniforms in place.
       const profile = state.profile;
@@ -253,9 +304,10 @@ export function mount(ctx, { panelRoot, infoRoot }) {
         || profile !== builtProfile;
 
       if (needNewMaterial) {
+        const nextMaterial = createRaymarchSigilMaterial(field, chromeOptionsFromState(state));
         if (sigilMaterial) sigilMaterial.dispose();
-        sigilMaterial = createRaymarchSigilMaterial(field, chromeOptionsFromState(state));
-        sigilMesh.material = sigilMaterial;
+        sigilMaterial = nextMaterial;
+        sigilMesh.material = nextMaterial;
         builtRaw = field.rawAttr;
         builtSmooth = field.smoothAttr;
         builtProfile = profile;
@@ -271,10 +323,17 @@ export function mount(ctx, { panelRoot, infoRoot }) {
       oldGeometry.dispose();
       sigilMesh.visible = field.grid.segmentCount > 0;
       gridInfo = `${field.grid.width}×${field.grid.height} field · ${RAYMARCH_STEPS} steps`;
+      pool = field;
+      if (previousPool && previousPool !== field && field.reused === false) {
+        previousPool.dispose?.(true);
+      }
 
       holdPreviewUntilRebuild = false;
       if (!drawing) clearPreviewMesh();
     } catch (error) {
+      if (field && field !== previousPool && field.reused === false) {
+        field.dispose?.();
+      }
       lastError = error?.message ?? String(error);
       console.error('meshless rebuild failed', error);
       // A transient field-build failure must not leave the canvas blank: release
@@ -285,15 +344,16 @@ export function mount(ctx, { panelRoot, infoRoot }) {
   }
 
   function pushPoint(p) {
-    if (!p) return;
+    if (!p) return false;
     const last = current[current.length - 1];
     if (last) {
       const dx = p[0] - last[0];
       const dy = p[1] - last[1];
       const minStep = state.minDrawStep;
-      if (dx * dx + dy * dy < minStep * minStep) return;
+      if (dx * dx + dy * dy < minStep * minStep) return false;
     }
     current.push(p);
+    return true;
   }
 
   function finishStroke() {
@@ -394,7 +454,11 @@ export function mount(ctx, { panelRoot, infoRoot }) {
     if (event.button !== 0) return;
     drawing = true;
     activePointer = event.pointerId;
-    renderer.domElement.setPointerCapture(event.pointerId);
+    try {
+      renderer.domElement.setPointerCapture(event.pointerId);
+    } catch {
+      // Some event sources do not create a capturable pointer.
+    }
     current = [];
     pushPoint(planePoint(event));
     refreshGuides();
@@ -403,7 +467,7 @@ export function mount(ctx, { panelRoot, infoRoot }) {
 
   renderer.domElement.addEventListener('pointermove', (event) => {
     if (!drawing || event.pointerId !== activePointer) return;
-    pushPoint(planePoint(event));
+    if (!pushPoint(planePoint(event))) return;
     refreshGuides();
     scheduleLiveRebuild(); // raymarch the in-progress stroke live as it's drawn
   }, { signal });
@@ -444,6 +508,7 @@ export function mount(ctx, { panelRoot, infoRoot }) {
   return () => {
     abort.abort();
     clearTimeout(rebuildTimer);
+    clearTimeout(liveRebuildTimer);
     guideMat.dispose();
     previewMaterial.dispose();
     if (sigilMaterial) sigilMaterial.dispose();

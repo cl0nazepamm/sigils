@@ -20,6 +20,7 @@ import {
   PEAK_MAX,
   RAYMARCH_STEPS,
 } from '../src/tsl/raymarchSigilMaterial.js';
+import { prepareStrokes } from '../src/strokePipeline.js';
 
 function fakeField() {
   const width = 8;
@@ -77,6 +78,21 @@ for (const profile of ['linear', 'round']) {
   const material = createRaymarchSigilMaterial(field, { profile: 'linear' });
   assert.ok(material.normalNode, 'normalNode set (smooth=0)');
   material.dispose();
+}
+
+// Grid margin controls should affect field/proxy size unless an explicit margin is provided.
+{
+  const stroke = [[0, 0], [1, 0]];
+  const scaled = prepareStrokes(stroke, { thickness: 0.2, resolution: 16, gridBufferFactor: 3 });
+  assert.ok(Math.abs(scaled.fieldOpts.margin - scaled.threshold * 3) < 1e-9, 'gridBufferFactor margin');
+
+  const explicit = prepareStrokes(stroke, {
+    thickness: 0.2,
+    resolution: 16,
+    gridBuffer: 0.42,
+    gridBufferFactor: 3,
+  });
+  assert.strictEqual(explicit.fieldOpts.margin, 0.42, 'gridBuffer overrides factor');
 }
 
 console.log(`meshless smoke OK · PEAK_MAX ${PEAK_MAX} · ${RAYMARCH_STEPS} steps`);
