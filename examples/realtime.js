@@ -30,8 +30,9 @@ import { resampleByLength } from '../src/index.js';
 
 const MAX_SEGS = 512;        // uniform-buffer capacity for base (pre-symmetry) segments
 const RESAMPLE = 0.03;       // world-space spacing of captured segments (denser = smoother joints, but more cost)
+const SIMPLIFY_TOL = 0.006;  // post-resample max deviation; removes redundant straight-ish segments
 const PLANE_SIZE = 3.6;      // plane covers [-1.8, 1.8] in the draw domain
-const PLANE_DIV = 320;       // plane tessellation
+const PLANE_DIV = 192;       // plane tessellation; silhouette remains per-pixel, this mainly drives relief normals
 const CELL = PLANE_SIZE / PLANE_DIV;
 // Lipschitz slack: the field is a distance (gradient <= 1), so within one triangle
 // the true field differs from the interpolated vertex field by at most the longest
@@ -41,7 +42,7 @@ const SLACK = CELL * 1.6;
 
 // ---------------------------------------------------------------- renderer ---
 const renderer = new THREE.WebGPURenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
@@ -60,7 +61,7 @@ camera.position.set(0, -0.85, 3.7);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.target.set(0, 0, 0);
-controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: null };
 
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -161,9 +162,7 @@ const field = Fn(([pIn]) => {
 
   Loop({ start: int(0), end: uSym, type: 'int', condition: '<', name: 'k' }, ({ k }) => {
     const q = rot2(pIn, sector.mul(float(k)).negate()).toVar();
-    // mirror: FOLD the query across the sector axis (q.y -> |q.y|) so dihedral
-    // symmetry costs ONE cone per segment instead of also testing a reflected query.
-    const qf = vec2(q.x, mix(q.y, q.y.abs(), uMirror)).toVar();
+    const qm = vec2(q.x, q.y.negate()); // query reflected across the sector axis (dihedral)
 
     // WITHIN one sector: smin is the OPTIONAL LOCAL FUSE. With uMelt small the
     // poly-smin correction collapses to 0 for distant strokes (auto hard-min).
@@ -187,7 +186,10 @@ const field = Fn(([pIn]) => {
       const rdif = clamp(r1.sub(r2), segLen.negate(), segLen);
       const r1c = rmid.add(rdif.mul(0.5));
       const r2c = rmid.sub(rdif.mul(0.5));
-      const dUse = roundedCone(qf, a, b, r1c, r2c);
+      // mirror on -> also union the reflected query (catches content in either half);
+      // a query-only fold would miss strokes drawn on the far side of the sector axis.
+      const dPlain = roundedCone(q, a, b, r1c, r2c);
+      const dUse = mix(dPlain, min(dPlain, roundedCone(qm, a, b, r1c, r2c)), uMirror);
       dSec.assign(smin(dSec, dUse, uMelt));
     });
 
@@ -284,6 +286,7 @@ material.roughnessNode = uRough;
 material.colorNode = uChromeTint;      // cool steel cast on the metallic reflections (tints F0)
 material.envMapIntensity = 1.6;
 material.side = THREE.DoubleSide;
+material.forceSinglePass = true;
 
 // The plane: dense enough that the displaced dome reads smoothly. The silhouette
 // crispness comes from the per-pixel discard, not from this tessellation.
@@ -295,6 +298,12 @@ const raycaster = new THREE.Raycaster();
 const drawPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 const ndc = new THREE.Vector2();
 const hit = new THREE.Vector3();
+const orbitOffset = new THREE.Vector3();
+const orbitSpherical = new THREE.Spherical();
+let orbiting = false;
+let orbitPointer = null;
+let orbitX = 0;
+let orbitY = 0;
 
 function planePoint(event) {
   ndc.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -304,12 +313,113 @@ function planePoint(event) {
   return [hit.x, hit.y];
 }
 
+function rotateView(dx, dy) {
+  const rotateSpeed = 0.006;
+  orbitOffset.copy(camera.position).sub(controls.target);
+  orbitSpherical.setFromVector3(orbitOffset);
+  orbitSpherical.theta -= dx * rotateSpeed;
+  orbitSpherical.phi -= dy * rotateSpeed;
+  orbitSpherical.makeSafe();
+  orbitOffset.setFromSpherical(orbitSpherical);
+  camera.position.copy(controls.target).add(orbitOffset);
+  camera.lookAt(controls.target);
+  controls.update();
+}
+
+function beginOrbit(event) {
+  if (event.button !== 2) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  orbiting = true;
+  orbitPointer = event.pointerId;
+  orbitX = event.clientX;
+  orbitY = event.clientY;
+  renderer.domElement.setPointerCapture(event.pointerId);
+  renderer.domElement.style.cursor = 'grabbing';
+}
+
+function moveOrbit(event) {
+  if (!orbiting || event.pointerId !== orbitPointer) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const dx = event.clientX - orbitX;
+  const dy = event.clientY - orbitY;
+  orbitX = event.clientX;
+  orbitY = event.clientY;
+  rotateView(dx, dy);
+}
+
+function endOrbit(event) {
+  if (!orbiting || event.pointerId !== orbitPointer) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  renderer.domElement.releasePointerCapture(event.pointerId);
+  renderer.domElement.style.cursor = 'crosshair';
+  orbiting = false;
+  orbitPointer = null;
+}
+
+renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
+renderer.domElement.addEventListener('pointerdown', beginOrbit, { capture: true });
+renderer.domElement.addEventListener('pointermove', moveOrbit, { capture: true });
+renderer.domElement.addEventListener('pointerup', endOrbit, { capture: true });
+renderer.domElement.addEventListener('pointercancel', endOrbit, { capture: true });
+
 const strokes = [];   // completed strokes
 let current = [];     // active stroke
 let drawing = false;
 let activePointer = null;
 let segCount = 0;     // active base-segment count (for the readout)
 const MIN_STEP = 0.012;
+
+function distanceToLineSq(p, a, b) {
+  const abx = b[0] - a[0];
+  const aby = b[1] - a[1];
+  const apx = p[0] - a[0];
+  const apy = p[1] - a[1];
+  const lenSq = abx * abx + aby * aby;
+  if (lenSq <= 1e-12) return apx * apx + apy * apy;
+  const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / lenSq));
+  const dx = apx - abx * t;
+  const dy = apy - aby * t;
+  return dx * dx + dy * dy;
+}
+
+function simplifyPolyline(points, tolerance) {
+  if (points.length <= 2 || tolerance <= 0) return points;
+
+  const keep = new Uint8Array(points.length);
+  const stack = [0, points.length - 1];
+  const tolSq = tolerance * tolerance;
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+
+  while (stack.length) {
+    const end = stack.pop();
+    const start = stack.pop();
+    let maxDist = -1;
+    let split = -1;
+
+    for (let i = start + 1; i < end; i++) {
+      const dist = distanceToLineSq(points[i], points[start], points[end]);
+      if (dist > maxDist) {
+        maxDist = dist;
+        split = i;
+      }
+    }
+
+    if (maxDist > tolSq && split > start) {
+      keep[split] = 1;
+      stack.push(start, split, split, end);
+    }
+  }
+
+  const simplified = [];
+  for (let i = 0; i < points.length; i++) {
+    if (keep[i]) simplified.push(points[i]);
+  }
+  return simplified;
+}
 
 // Rebuild the GPU segment buffer from the current strokes. This is the only
 // CPU-side cost of a change, and it's just writing floats — no meshing.
@@ -320,17 +430,20 @@ function syncSegments() {
     if (stroke.length < 2) continue;
     const rs = resampleByLength(stroke, RESAMPLE);
     if (rs.length < 2) continue;
+    const rawClosed = Math.hypot(rs[0][0] - rs[rs.length - 1][0], rs[0][1] - rs[rs.length - 1][1]) <= RESAMPLE * 1.5;
+    const pts = rawClosed ? rs : simplifyPolyline(rs, SIMPLIFY_TOL);
+    if (pts.length < 2) continue;
     // cumulative arc length along the resampled polyline
     const cum = [0];
-    for (let i = 1; i < rs.length; i++) {
-      cum.push(cum[i - 1] + Math.hypot(rs[i][0] - rs[i - 1][0], rs[i][1] - rs[i - 1][1]));
+    for (let i = 1; i < pts.length; i++) {
+      cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
     }
     const total = cum[cum.length - 1];
     // closed loop -> endpoints meet, keep full radius (no terminal taper)
-    const closed = Math.hypot(rs[0][0] - rs[rs.length - 1][0], rs[0][1] - rs[rs.length - 1][1]) <= RESAMPLE * 1.5;
+    const closed = Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) <= RESAMPLE * 1.5;
     const termDist = (i) => (closed ? 1e3 : Math.min(cum[i], total - cum[i]));
-    for (let i = 0; i + 1 < rs.length && n < MAX_SEGS; i++) {
-      segData[n].set(rs[i][0], rs[i][1], rs[i + 1][0], rs[i + 1][1]);
+    for (let i = 0; i + 1 < pts.length && n < MAX_SEGS; i++) {
+      segData[n].set(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
       radData[n].set(termDist(i), termDist(i + 1));
       n++;
     }
@@ -483,7 +596,7 @@ renderer.setAnimationLoop(() => {
   frames++;
   if (fpsClock >= 500) {
     const fps = Math.round((frames * 1000) / fpsClock);
-    statsEl.textContent = `${fps} fps · ${segCount} segs · symmetry ${uSym.value}${uMirror.value ? ' +mirror' : ''}`;
+    statsEl.textContent = `${fps} fps · ${segCount} segs · symmetry ${uSym.value}${uMirror.value ? ' +mirror' : ''} · grid ${PLANE_DIV}`;
     frames = 0;
     fpsClock = 0;
   }
