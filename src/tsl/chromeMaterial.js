@@ -6,8 +6,8 @@
  *
  *   1. Peak displacement. The flat fill carries `aDepth` (0 at the rim, 1 at the
  *      interior). We push the top surface up along +Z. The default profile is
- *      linear, matching the default shape profile; `profile: 'round'` uses
- *      the older circular cross-section profile H = peak * sqrt(depth*(2-depth)).
+ *      linear boundary depth; `profile: 'round'` uses the older circular
+ *      cross-section profile H = peak * sqrt(depth*(2-depth)).
  *
  *   2. Analytic normals. For a height field z = H(x, y) the unit normal is
  *      normalize(-dH/dx, -dH/dy, 1). We have dH/d(depth) in closed form and the

@@ -32,11 +32,11 @@ export interface ShapeOptions {
   resample?: number;
   /** Distance-field blur passes (smoothing). @default scales with resolution */
   smooth?: number;
-  /** point-position point-position blur passes. @default 0 */
+  /** Point-position blur passes for a softer generated silhouette. @default 0 */
   sigilize?: number;
   /** Influence of each sigilize pass. @default 1 */
   sigilizeWeight?: number;
-  /** Height field source. Boundary matches the default shape profile. @default 'boundary' */
+  /** Height field source. Boundary uses distance from the finished rim. @default 'boundary' */
   depthMode?: 'boundary' | 'centerline';
   /** Boundary distance that reaches full height. @default thickness*0.5 */
   edgeFalloff?: number;
@@ -63,8 +63,47 @@ export interface ChromeOptions {
   color?: ColorRepresentation;
   /** @default 1.5 */
   envMapIntensity?: number;
-  /** Height profile. Linear matches the default shape profile. @default 'linear' */
+  /** Height profile. Linear follows baked boundary depth; round is tube-like. @default 'linear' */
   profile?: 'linear' | 'round';
+}
+
+export interface SparseCurveOptions {
+  /** Radial symmetry copies. @default 1 */
+  symmetry?: number;
+  /** Global rotation applied to every copy, in radians. @default 0 */
+  phase?: number;
+  /** Also add mirrored copies. @default false */
+  mirror?: boolean;
+  /** Symmetry pivot. @default [0,0] */
+  center?: Pt2;
+  /** Curve width in world units. @default 0.07 */
+  thickness?: number;
+  /** Extra curve width. @default 0 */
+  spread?: number;
+  /** Raised profile height in world units. @default 0.13 */
+  peakHeight?: number;
+  /** Stroke resample spacing. @default 0.03 */
+  resample?: number;
+  /** Polyline simplification tolerance. @default 0.006 */
+  simplify?: number;
+  /** Open-end taper length. @default 0.35 */
+  taperLen?: number;
+  /** Open-end taper exponent. @default 1.8 */
+  taperPower?: number;
+  /** Minimum half-width at open tips. @default 0.004 */
+  tipRadius?: number;
+  /** Height falloff from center to rim. @default 1 */
+  ridgePower?: number;
+  /** Rim rounding width in normalized profile units. @default 0.12 */
+  bevel?: number;
+  /** Height blur iterations before normal generation. @default 0 */
+  heightSmooth?: number;
+  /** Height blur influence per pass. @default 1 */
+  heightSmoothWeight?: number;
+  /** Flat underside depth; 0 disables side/base triangles. @default 0.018 */
+  baseDepth?: number;
+  /** Normalized cross samples from -1 to 1. */
+  profile?: number[];
 }
 
 export type SigilOptions = ShapeOptions & ChromeOptions;
@@ -90,6 +129,7 @@ export function createSigilAsync(paths: PathInput, opts?: SigilOptions): Promise
 
 export function buildSigilGeometry(paths: PathInput, opts?: ShapeOptions): BufferGeometry;
 export function buildSigilGeometryAsync(paths: PathInput, opts?: ShapeOptions): Promise<BufferGeometry>;
+export function buildSparseCurveGeometry(paths: PathInput, opts?: SparseCurveOptions): BufferGeometry;
 export function buildGpuDistanceField(
   renderer: WebGPURenderer,
   paths: PathInput,

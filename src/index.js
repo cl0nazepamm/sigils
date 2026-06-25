@@ -10,6 +10,7 @@ export { createSigil, createSigilAsync } from './createSigil.js';
 
 // Geometry pipeline (compose your own)
 export { buildSigilGeometry, buildSigilGeometryAsync } from './buildGeometry.js';
+export { buildSparseCurveGeometry } from './sparseCurveGeometry.js';
 export { buildGpuDistanceField } from './gpuDistanceField.js';
 export { spirograph } from './spirograph.js';
 export { radialSymmetry } from './symmetry.js';

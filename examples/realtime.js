@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
-import { resampleByLength } from '../src/index.js';
+import { buildSparseCurveGeometry } from '../src/index.js';
 
 // ============================================================================
 // Realtime sparse sigil curves.
@@ -13,24 +13,23 @@ import { resampleByLength } from '../src/index.js';
 // segment search. That is the shape needed for Max spline/room-scale reuse.
 // ============================================================================
 
-const RESAMPLE = 0.03;
-const SIMPLIFY_TOL = 0.006;
 const MIN_STEP = 0.012;
-const TAU = Math.PI * 2;
-const CROSS = [-1, -0.78, -0.52, -0.28, 0, 0.28, 0.52, 0.78, 1];
 
 const state = {
   symmetry: 6,
   mirror: true,
   thickness: 0.07,
   spread: 0,
-  peak: 0.13,
+  peak: 0.16,
   roughness: 0.05,
   taperLen: 0.35,
   taperExp: 1.8,
   tipRadius: 0.004,
-  ridge: 2.6,
-  bevel: 0,
+  ridge: 1,
+  bevel: 0.12,
+  smooth: 4,
+  smoothWeight: 0.65,
+  baseDepth: 0.018,
   rim: 0.7,
   rimPower: 3.2,
 };
@@ -85,6 +84,7 @@ const sigilMaterial = new THREE.MeshStandardMaterial({
 
 const sigilMesh = new THREE.Mesh(new THREE.BufferGeometry(), sigilMaterial);
 sigilMesh.frustumCulled = false;
+sigilMesh.visible = false;
 scene.add(sigilMesh);
 
 // ---------------------------------------------------------------- draw io ----
@@ -128,7 +128,11 @@ function beginOrbit(event) {
   orbitPointer = event.pointerId;
   orbitX = event.clientX;
   orbitY = event.clientY;
-  renderer.domElement.setPointerCapture(event.pointerId);
+  try {
+    renderer.domElement.setPointerCapture(event.pointerId);
+  } catch {
+    // Some event sources do not create a capturable pointer, but orbit can still proceed.
+  }
   renderer.domElement.style.cursor = 'grabbing';
 }
 
@@ -147,7 +151,13 @@ function endOrbit(event) {
   if (!orbiting || event.pointerId !== orbitPointer) return;
   event.preventDefault();
   event.stopImmediatePropagation();
-  renderer.domElement.releasePointerCapture(event.pointerId);
+  try {
+    if (renderer.domElement.hasPointerCapture(event.pointerId)) {
+      renderer.domElement.releasePointerCapture(event.pointerId);
+    }
+  } catch {
+    // Capture may already be gone after browser-level cancellation.
+  }
   renderer.domElement.style.cursor = 'crosshair';
   orbiting = false;
   orbitPointer = null;
@@ -168,182 +178,30 @@ let baseSegCount = 0;
 let drawnSegCount = 0;
 let vertexCount = 0;
 
-function distanceToLineSq(p, a, b) {
-  const abx = b[0] - a[0];
-  const aby = b[1] - a[1];
-  const apx = p[0] - a[0];
-  const apy = p[1] - a[1];
-  const lenSq = abx * abx + aby * aby;
-  if (lenSq <= 1e-12) return apx * apx + apy * apy;
-  const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / lenSq));
-  const dx = apx - abx * t;
-  const dy = apy - aby * t;
-  return dx * dx + dy * dy;
-}
-
-function simplifyPolyline(points, tolerance) {
-  if (points.length <= 2 || tolerance <= 0) return points;
-
-  const keep = new Uint8Array(points.length);
-  const stack = [0, points.length - 1];
-  const tolSq = tolerance * tolerance;
-  keep[0] = 1;
-  keep[points.length - 1] = 1;
-
-  while (stack.length) {
-    const end = stack.pop();
-    const start = stack.pop();
-    let maxDist = -1;
-    let split = -1;
-
-    for (let i = start + 1; i < end; i++) {
-      const dist = distanceToLineSq(points[i], points[start], points[end]);
-      if (dist > maxDist) {
-        maxDist = dist;
-        split = i;
-      }
-    }
-
-    if (maxDist > tolSq && split > start) {
-      keep[split] = 1;
-      stack.push(start, split, split, end);
-    }
-  }
-
-  const simplified = [];
-  for (let i = 0; i < points.length; i++) {
-    if (keep[i]) simplified.push(points[i]);
-  }
-  return simplified;
-}
-
-function processStroke(stroke) {
-  if (stroke.length < 2) return null;
-
-  const sampled = resampleByLength(stroke, RESAMPLE);
-  if (sampled.length < 2) return null;
-
-  const rawClosed = Math.hypot(
-    sampled[0][0] - sampled[sampled.length - 1][0],
-    sampled[0][1] - sampled[sampled.length - 1][1],
-  ) <= RESAMPLE * 1.5;
-  const points = rawClosed ? sampled : simplifyPolyline(sampled, SIMPLIFY_TOL);
-  if (points.length < 2) return null;
-
-  const distance = [0];
-  for (let i = 1; i < points.length; i++) {
-    distance.push(distance[i - 1] + Math.hypot(
-      points[i][0] - points[i - 1][0],
-      points[i][1] - points[i - 1][1],
-    ));
-  }
-
-  const total = distance[distance.length - 1];
-  const closed = Math.hypot(
-    points[0][0] - points[points.length - 1][0],
-    points[0][1] - points[points.length - 1][1],
-  ) <= RESAMPLE * 1.5;
-
-  return { points, distance, total, closed };
-}
-
-function pointHalfWidth(path, i) {
-  const baseHalf = state.thickness * 0.5 + state.spread * 0.08;
-  if (path.closed) return baseHalf;
-  const terminalDistance = Math.min(path.distance[i], path.total - path.distance[i]);
-  const t = Math.min(1, Math.max(0, terminalDistance / Math.max(state.taperLen, 1e-4)));
-  return Math.max(state.tipRadius, baseHalf * Math.pow(t, state.taperExp));
-}
-
-function bladeHeight(cross) {
-  const t = Math.max(0, 1 - Math.abs(cross));
-  const blade = Math.pow(t, Math.max(0.25, state.ridge));
-  const groove = Math.pow(t, 24) * state.bevel;
-  return Math.max(0, state.peak * (blade - groove));
-}
-
-function transformPoint(p, sectorIndex, mirrored) {
-  const y = mirrored ? -p[1] : p[1];
-  const a = (TAU / Math.max(1, state.symmetry | 0)) * sectorIndex;
-  const c = Math.cos(a);
-  const s = Math.sin(a);
-  return [p[0] * c - y * s, p[0] * s + y * c];
-}
-
-function appendBlade(path, sectorIndex, mirrored, positions, uvs, indices) {
-  const start = positions.length / 3;
-  const count = path.points.length;
-
-  for (let i = 0; i < count; i++) {
-    const p = transformPoint(path.points[i], sectorIndex, mirrored);
-    const pPrev = transformPoint(path.points[Math.max(0, i - 1)], sectorIndex, mirrored);
-    const pNext = transformPoint(path.points[Math.min(count - 1, i + 1)], sectorIndex, mirrored);
-    let tx = pNext[0] - pPrev[0];
-    let ty = pNext[1] - pPrev[1];
-    const len = Math.hypot(tx, ty) || 1;
-    tx /= len;
-    ty /= len;
-
-    const nx = -ty;
-    const ny = tx;
-    const half = pointHalfWidth(path, i);
-    const along = path.total > 0 ? path.distance[i] / path.total : 0;
-
-    for (const cross of CROSS) {
-      positions.push(
-        p[0] + nx * half * cross,
-        p[1] + ny * half * cross,
-        bladeHeight(cross),
-      );
-      uvs.push(along, cross * 0.5 + 0.5);
-    }
-  }
-
-  const stride = CROSS.length;
-  for (let i = 0; i + 1 < count; i++) {
-    const a = start + i * stride;
-    const b = start + (i + 1) * stride;
-    for (let c = 0; c + 1 < stride; c++) {
-      indices.push(a + c, b + c, a + c + 1);
-      indices.push(a + c + 1, b + c, b + c + 1);
-    }
-  }
-}
-
 function buildSigilGeometry() {
   const all = current.length >= 2 ? [...strokes, current] : strokes;
-  const positions = [];
-  const uvs = [];
-  const indices = [];
-  let base = 0;
-  let drawn = 0;
-
-  for (const stroke of all) {
-    const path = processStroke(stroke);
-    if (!path) continue;
-
-    const segs = path.points.length - 1;
-    base += segs;
-
-    for (let k = 0; k < state.symmetry; k++) {
-      appendBlade(path, k, false, positions, uvs, indices);
-      drawn += segs;
-      if (state.mirror) {
-        appendBlade(path, k, true, positions, uvs, indices);
-        drawn += segs;
-      }
-    }
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  geometry.computeBoundingSphere();
-  geometry.computeBoundingBox();
-
-  return { geometry, base, drawn, vertices: positions.length / 3 };
+  const geometry = buildSparseCurveGeometry(all, {
+    symmetry: state.symmetry,
+    mirror: state.mirror,
+    thickness: state.thickness,
+    spread: state.spread,
+    peakHeight: state.peak,
+    taperLen: state.taperLen,
+    taperPower: state.taperExp,
+    tipRadius: state.tipRadius,
+    ridgePower: state.ridge,
+    bevel: state.bevel,
+    heightSmooth: state.smooth,
+    heightSmoothWeight: state.smoothWeight,
+    baseDepth: state.baseDepth,
+  });
+  const stats = geometry.userData.sparseCurveStats ?? {};
+  return {
+    geometry,
+    base: stats.baseSegments ?? 0,
+    drawn: stats.drawnSegments ?? 0,
+    vertices: stats.vertices ?? 0,
+  };
 }
 
 function syncSigil() {
@@ -354,6 +212,7 @@ function syncSigil() {
   baseSegCount = base;
   drawnSegCount = drawn;
   vertexCount = vertices;
+  sigilMesh.visible = vertices > 0;
   refreshGuides();
 }
 
@@ -428,6 +287,8 @@ const ui = {
   tipRadius: document.getElementById('tipRadius'),
   ridge: document.getElementById('ridge'),
   bevel: document.getElementById('bevel'),
+  smooth: document.getElementById('smooth'),
+  weight: document.getElementById('weight'),
   rim: document.getElementById('rim'),
   rimpow: document.getElementById('rimpow'),
   guides: document.getElementById('guides'),
@@ -459,6 +320,8 @@ bindSlider(ui.taperExp, (v) => { state.taperExp = v; });
 bindSlider(ui.tipRadius, (v) => { state.tipRadius = v; });
 bindSlider(ui.ridge, (v) => { state.ridge = v; });
 bindSlider(ui.bevel, (v) => { state.bevel = v; });
+bindSlider(ui.smooth, (v) => { state.smooth = v | 0; });
+bindSlider(ui.weight, (v) => { state.smoothWeight = v; });
 bindSlider(ui.rim, (v) => {
   state.rim = v;
   sigilMaterial.emissiveIntensity = v * 0.08;

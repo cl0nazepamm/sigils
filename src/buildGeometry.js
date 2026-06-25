@@ -33,7 +33,7 @@ import { buildGpuDistanceField } from './gpuDistanceField.js';
  * @param {number}  [opts.smooth]        - field blur passes; default 1 (de-noise, keeps corners)
  * @param {number}  [opts.taper=1]       - 0 = round caps, 1 = strokes taper to sharp points
  * @param {number}  [opts.taperPower=0.6]- taper profile exponent (lower = blunter tips)
- * @param {number}  [opts.sigilize=0]    - point-position point-position blur passes
+ * @param {number}  [opts.sigilize=0]    - point-position blur passes
  * @param {number}  [opts.sigilizeWeight=1] - influence of each sigilize blur pass
  * @param {'boundary'|'centerline'} [opts.depthMode='boundary'] - height field source
  * @param {number}  [opts.edgeFalloff]   - boundary distance that reaches full height
@@ -128,18 +128,16 @@ function finishSigilGeometry(field, prepared, opts) {
     return new BufferGeometry();
   }
 
-  // The sigilize pass blurs the point Position attribute and writes it
-  // back to the mesh. This gives the filled marching-squares result its melted,
+  // Point-position blur gives the filled marching-squares result its melted,
   // logo-like sigil shape instead of a literal fattened stroke.
   const sigilize = Math.max(0, Math.floor(opts.sigilize ?? 0));
   if (sigilize > 0) {
     blurRegionPositions(region, sigilize, opts.sigilizeWeight ?? 1);
   }
 
-  // The shape profile graph drives the vertical profile from distance to the
-  // finished boundary edge. The older centerline field is still available, but
-  // boundary depth is the procedural-match path and handles crossings/interiors
-  // much more like the the generated shape.
+  // The vertical profile is driven from distance to the finished boundary edge.
+  // The older centerline field is still available, but boundary depth handles
+  // crossings and interiors more like the final raised surface.
   const depthMode = opts.depthMode ?? 'boundary';
   if (depthMode === 'boundary') {
     applyBoundaryDepth(region, opts.edgeFalloff ?? threshold, Math.max(0, Math.floor(opts.heightSmooth ?? smooth)));

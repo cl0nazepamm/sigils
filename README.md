@@ -30,7 +30,7 @@ strokes ─▶ radial symmetry ─▶ distance field (CPU or WebGPU compute) ─
 2. **Distance field** — distance-to-stroke sampled on a grid.
 3. **Filled marching squares** — threshold the field into a smooth "fat stroke"
    region and triangulate it (interpolated edges → clean silhouette).
-4. **Sigilize blur** — point-position blur of point positions on the generated
+4. **Sigilize blur** — blur point positions on the generated
    mesh, turning the raw fat stroke into the melted sigil surface.
 5. **Boundary height** — derive height from distance to the finished boundary
    edge, not just distance to the original stroke.
@@ -64,11 +64,11 @@ const sigil = createSigil(stroke, {
   center: [0, 0],     // symmetry pivot
   thickness: 0.16,    // fat-stroke width
   resolution: 320,    // field grid density
-  sigilize: 36,        // point-position point-position blur
+  sigilize: 36,        // point-position blur
   depthMode: 'boundary',
   base: 0.08,         // solid base depth (0 = open shell)
   peakHeight: 0.30,   // bulge height (live)
-  profile: 'linear',  // 'linear' matches the GN reference; 'round' is tube-like
+  profile: 'linear',  // 'linear' uses boundary depth; 'round' is tube-like
   roughness: 0.06,    // 0 = perfect mirror (live)
 });
 scene.add(sigil);
@@ -120,6 +120,7 @@ sigil.userData.sigil.rebuild(newStroke, { symmetry: 8, thickness: 0.2 });
 import {
   buildSigilGeometry,   // strokes -> BufferGeometry (with aDepth/aGrad/aNormal/aDome)
   buildSigilGeometryAsync, // optional WebGPU compute distance-field backend
+  buildSparseCurveGeometry, // realtime curve-native BufferGeometry
   buildGpuDistanceField, // raw WebGPU distance/taper field + CPU readback
   createChromeMaterial, // TSL chrome NodeMaterial
   spirograph,           // hypotrochoid stroke (cusps + loops)
@@ -163,30 +164,20 @@ Want to draw your own stroke? Open `/draw.html` on the dev server — left-drag 
 sketch a curve, release to forge it into chrome. Strokes accumulate, and the
 **Symmetry** control turns a single stroke into a full radial emblem.
 
-### Realtime GPU-SDF demo
+### Realtime sparse-curve demo
 
-`/realtime.html` is the state-of-the-art path: the sigil is **never meshed on the
-CPU**. Your strokes become a segment buffer, and a single TSL material evaluates
-the whole emblem as a signed-distance field every frame — kaleidoscope symmetry
-by domain-folding, a smooth-union (`smin`) melt, dome displacement with analytic
-normals, and a per-pixel silhouette. Drawing, symmetry, mirror, width, melt, peak
-and roughness are all live uniforms; nothing rebuilds, so the chrome forges under
-your cursor as you draw.
+`/realtime.html` is the low-latency path for drawing or streaming curve sets. It
+uses `buildSparseCurveGeometry()` to turn strokes into real raised triangles near
+the curves only; empty space emits no vertices and runs no fragment distance loop.
+The geometry rebuilds while drawing, but the rebuild is proportional to curve
+length and symmetry copies, not to a global field resolution.
 
-The per-pixel field is the dominant cost, so it's gated by a **vertex pre-reject**:
-the field is sampled once per vertex and interpolated, and any fragment that's
-confidently inside/outside the stroke (beyond the triangle's Lipschitz slack) skips
-the loop — only the thin boundary band evaluates the field per pixel. That keeps a
-light sigil near ~180 fps and roughly halves the cost of dense ones.
-
-The default preset is tuned for a **cybersigilism** look: thin wiry strokes that
-taper to sharp metallic needle points (each segment is an iq rounded-cone SDF whose
-endpoint radius ramps to zero at open terminals — kept exactly 1‑Lipschitz so the
-pre-reject still holds), a knife-edge ridge height profile, hard-min unions for
-angular cusps and pointed star tips, and a cold blue-steel chrome with an emissive
-Fresnel rim. The relief is read from the surface normal while the geometry stays
-nearly flat (`uReliefZ`), so the silhouette is the clean per-pixel cutout at every
-angle. The `Taper`, `Tip`, `Ridge`, `Bevel`, `Rim` and `Edge` sliders are all live.
+The default profile is a boundary-distance roof: low at the rim, raised toward
+the center, split along the middle for a crisp metallic highlight, with a small
+flat underside so the shape reads as a solid object when orbiting. A sparse
+height blur (`heightSmooth`, `heightSmoothWeight`) adds the softer connected
+surface without rasterizing a global field. The `Taper`, `Tip`, `Ridge`,
+`Bevel`, `Smooth`, `Weight`, `Rim` and `Edge` sliders are live.
 
 ## Notes
 
