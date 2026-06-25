@@ -179,6 +179,15 @@ confidently inside/outside the stroke (beyond the triangle's Lipschitz slack) sk
 the loop — only the thin boundary band evaluates the field per pixel. That keeps a
 light sigil near ~180 fps and roughly halves the cost of dense ones.
 
+The default preset is tuned for a **cybersigilism** look: thin wiry strokes that
+taper to sharp metallic needle points (each segment is an iq rounded-cone SDF whose
+endpoint radius ramps to zero at open terminals — kept exactly 1‑Lipschitz so the
+pre-reject still holds), a knife-edge ridge height profile, hard-min unions for
+angular cusps and pointed star tips, and a cold blue-steel chrome with an emissive
+Fresnel rim. The relief is read from the surface normal while the geometry stays
+nearly flat (`uReliefZ`), so the silhouette is the clean per-pixel cutout at every
+angle. The `Taper`, `Tip`, `Ridge`, `Bevel`, `Rim` and `Edge` sliders are all live.
+
 ## Notes
 
 - The distance field is brute-force (grid × segments). For very high resolution

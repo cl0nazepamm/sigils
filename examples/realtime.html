@@ -60,27 +60,62 @@
       </div>
       <div class="control-row check">
         <label for="mirror">Mirror</label>
-        <input id="mirror" type="checkbox" />
+        <input id="mirror" type="checkbox" checked />
       </div>
       <div class="control-row">
         <label for="thickness">Width</label>
-        <input id="thickness" type="range" min="0.03" max="0.30" step="0.005" value="0.13" />
-        <output id="thickness-out">0.13</output>
+        <input id="thickness" type="range" min="0.03" max="0.30" step="0.005" value="0.07" />
+        <output id="thickness-out">0.07</output>
       </div>
       <div class="control-row">
-        <label for="melt">Melt</label>
-        <input id="melt" type="range" min="0" max="0.20" step="0.005" value="0.05" />
-        <output id="melt-out">0.05</output>
+        <label for="melt">Fuse</label>
+        <input id="melt" type="range" min="0" max="0.20" step="0.005" value="0.00" />
+        <output id="melt-out">0.00</output>
       </div>
       <div class="control-row">
         <label for="peak">Peak</label>
-        <input id="peak" type="range" min="0" max="0.45" step="0.005" value="0.16" />
-        <output id="peak-out">0.16</output>
+        <input id="peak" type="range" min="0" max="0.45" step="0.005" value="0.13" />
+        <output id="peak-out">0.13</output>
       </div>
       <div class="control-row">
         <label for="roughness">Rough</label>
-        <input id="roughness" type="range" min="0" max="0.35" step="0.005" value="0.04" />
-        <output id="roughness-out">0.04</output>
+        <input id="roughness" type="range" min="0" max="0.35" step="0.005" value="0.05" />
+        <output id="roughness-out">0.05</output>
+      </div>
+      <div class="control-row">
+        <label for="taperLen">Taper len</label>
+        <input id="taperLen" type="range" min="0.15" max="1.0" step="0.01" value="0.35" />
+        <output id="taperLen-out">0.35</output>
+      </div>
+      <div class="control-row">
+        <label for="taperExp">Tip sharp</label>
+        <input id="taperExp" type="range" min="1" max="4" step="0.1" value="1.8" />
+        <output id="taperExp-out">1.8</output>
+      </div>
+      <div class="control-row">
+        <label for="tipRadius">Tip rad</label>
+        <input id="tipRadius" type="range" min="0" max="0.02" step="0.001" value="0.004" />
+        <output id="tipRadius-out">0.004</output>
+      </div>
+      <div class="control-row">
+        <label for="ridge">Ridge</label>
+        <input id="ridge" type="range" min="1" max="6" step="0.1" value="2.6" />
+        <output id="ridge-out">2.6</output>
+      </div>
+      <div class="control-row">
+        <label for="bevel">Bevel</label>
+        <input id="bevel" type="range" min="0" max="0.6" step="0.02" value="0.00" />
+        <output id="bevel-out">0.00</output>
+      </div>
+      <div class="control-row">
+        <label for="rim">Rim</label>
+        <input id="rim" type="range" min="0" max="2" step="0.05" value="0.70" />
+        <output id="rim-out">0.70</output>
+      </div>
+      <div class="control-row">
+        <label for="rimpow">Edge</label>
+        <input id="rimpow" type="range" min="1" max="8" step="0.1" value="3.2" />
+        <output id="rimpow-out">3.2</output>
       </div>
       <div class="control-row check">
         <label for="guides">Guides</label>
