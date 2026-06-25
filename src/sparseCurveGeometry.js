@@ -34,7 +34,6 @@ const DEFAULT_PROFILE = [
  * @param {number} [opts.heightSmoothWeight=1] - height blur influence per pass
  * @param {number} [opts.baseDepth=0.018] - flat underside depth, 0 disables sides
  * @param {number[]} [opts.profile] - normalized cross samples from -1 to 1
- * @param {number[]} [opts.profile] - normalized cross samples from -1 to 1
  * @returns {BufferGeometry}
  */
 export function buildSparseCurveGeometry(paths, opts = {}) {

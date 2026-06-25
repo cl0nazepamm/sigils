@@ -63,15 +63,13 @@
       }
       .buttons button:hover { background: rgba(255,255,255,0.16); }
       .note { margin-top: 12px; color: #8a8a93; }
+      .control-details { margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.12); }
+      .control-details summary { cursor: pointer; list-style: none; }
+      .control-details summary::-webkit-details-marker { display: none; }
     </style>
   </head>
   <body>
     <div id="panel">
-      <div class="mode-switch">
-        <label for="mode">Mode</label>
-        <select id="mode" autocomplete="off"></select>
-      </div>
-      <p id="mode-hint"></p>
       <div id="mode-panel"></div>
     </div>
     <div id="info"></div>

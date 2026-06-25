@@ -159,15 +159,14 @@ npm install
 npm run example
 ```
 
-Open http://localhost:5173/ — one page with a **Mode** switch:
+Open http://localhost:5173/ — one page with a **Forge** switch:
 
-| Mode | What it does |
-|------|----------------|
-| **Gallery** | Preset glyphs, full SDF pipeline, orbit with left-drag. Keys `1–6`, `r`, `[ ]`, `- =`. |
-| **Draw** | Sketch strokes; full `createSigilAsync` merge on release. |
-| **Realtime** | Sparse chrome preview while drawing; GPU SDF + marching squares merge on release. |
+| Forge | What it does |
+|-------|----------------|
+| **Fast** | Sparse chrome preview while drawing; GPU SDF merge on release (280 grid). |
+| **Quality** | Sparse chrome preview while drawing; full hybrid SDF merge on release (460 grid). |
 
-Legacy URLs redirect: `/draw.html` → `?mode=draw`, `/realtime.html` → `?mode=realtime`.
+Legacy URLs: `/draw.html` → `?forge=quality`, `/realtime.html` → `?forge=fast`.
 
 ### Library surface
 

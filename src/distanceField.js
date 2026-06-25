@@ -152,6 +152,11 @@ export class DistanceField {
     return this._at(this.dist, i, j) - threshold * this._at(this.weight, i, j);
   }
 
+  /** Blurred-field implicit — used for merge softening when field blur > 0. */
+  implicitSmoothedAt(i, j, threshold) {
+    return this._at(this.distS, i, j) - threshold * this._at(this.weightS, i, j);
+  }
+
   /** Interpolated raw distance at world (x, y). */
   sample(x, y) { return this._bilinear(this.dist, x, y); }
   /** Interpolated raw taper weight at world (x, y). */

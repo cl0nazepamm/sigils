@@ -17,15 +17,25 @@
 /**
  * @param {DistanceField} field
  * @param {number} threshold - base region radius around the strokes (world units)
+ * @param {number} [fieldSmooth=0] - blur passes; softens stroke merges in the fill
+ * @param {number} [mergeBlendScale=8] - fieldSmooth divisor for raw/smoothed implicit blend
  * @returns {{
  *   positions: Float32Array, depth: Float32Array, grad: Float32Array,
  *   indices: Uint32Array, boundary: Array<[number, number]>, count: number
  * }}
  */
-export function fillRegion(field, threshold) {
+export function fillRegion(field, threshold, fieldSmooth = 0, mergeBlendScale = 8) {
   const { width, height, cell, minX, minY } = field;
   const eps = cell * 1e-3;
   const gradStep = cell * 1.25; // wider than a cell -> de-noised shading normals
+  const mergeBlend = fieldSmooth > 0 ? Math.min(1, fieldSmooth / mergeBlendScale) : 0;
+
+  const implicit = (i, j) => {
+    const raw = field.implicitAt(i, j, threshold);
+    if (mergeBlend <= 0 || typeof field.implicitSmoothedAt !== 'function') return raw;
+    const blurred = field.implicitSmoothedAt(i, j, threshold);
+    return raw * (1 - mergeBlend) + blurred * mergeBlend;
+  };
 
   const vx = [];
   const vy = [];
@@ -58,10 +68,10 @@ export function fillRegion(field, threshold) {
     for (let i = 0; i < width - 1; i++) {
       // Implicit value at the four corners (< 0 is inside).
       const g = [
-        field.implicitAt(i, j, threshold),
-        field.implicitAt(i + 1, j, threshold),
-        field.implicitAt(i + 1, j + 1, threshold),
-        field.implicitAt(i, j + 1, threshold),
+        implicit(i, j),
+        implicit(i + 1, j),
+        implicit(i + 1, j + 1),
+        implicit(i, j + 1),
       ];
       let inCount = 0;
       for (let c = 0; c < 4; c++) if (g[c] < 0) inCount++;

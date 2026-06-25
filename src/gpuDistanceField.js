@@ -151,6 +151,9 @@ class HybridDistanceField {
   implicitAt(i, j, threshold) {
     return this._at(this.dist, i, j) - threshold * this._at(this.weight, i, j);
   }
+  implicitSmoothedAt(i, j, threshold) {
+    return this._at(this.distS, i, j) - threshold * this._at(this.weightS, i, j);
+  }
   sample(x, y) { return this._bilinear(this.dist, x, y); }
   sampleWeight(x, y) { return this._bilinear(this.weight, x, y); }
 

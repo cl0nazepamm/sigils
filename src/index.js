@@ -7,6 +7,17 @@
 
 // High-level
 export { createSigil, createSigilAsync } from './createSigil.js';
+export {
+  SIGIL_DEFAULTS,
+  createSigilState,
+  shapeOptionsFromState,
+  sparsePreviewOptionsFromState,
+  chromeOptionsFromState,
+  mergedSigilShapeOptions,
+  realtimeMergedShapeOptions,
+  DRAW_MERGE_RESOLUTION,
+  REALTIME_MERGE_RESOLUTION,
+} from './sigilDefaults.js';
 
 // Geometry pipeline (compose your own)
 export { buildSigilGeometry, buildSigilGeometryAsync, finishSigilGeometryFromField } from './buildGeometry.js';

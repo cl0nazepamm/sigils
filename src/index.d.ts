@@ -42,6 +42,12 @@ export interface ShapeOptions {
   edgeFalloff?: number;
   /** Extra blur passes on the generated height/depth attribute. @default smooth */
   heightSmooth?: number;
+  /** Influence of each height blur pass on the baked depth field. @default 0.5 */
+  heightSmoothWeight?: number;
+  /** fieldSmooth divisor for fill implicit raw/smoothed blend. @default 8 */
+  fieldMergeBlendScale?: number;
+  /** fieldSmooth divisor for boundary depth raw/smoothed blend. @default 6 */
+  fieldDepthBlendScale?: number;
   /** Stacked rotational copies before radial symmetry (repeat-zone style). */
   spiroCopies?: number;
   /** Radians between stacked copies. @default TAU / spiroCopies */
@@ -140,6 +146,71 @@ export interface SparseCurveOptions {
 
 export type SigilOptions = ShapeOptions & ChromeOptions;
 
+export interface SigilState {
+  minDrawStep: number;
+  symmetry: number;
+  mirror: boolean;
+  phase: number;
+  center: Pt2;
+  thickness: number;
+  guides: boolean;
+  backend: 'hybrid' | 'cpu';
+  resolution: number;
+  smooth: number;
+  taper: number;
+  taperPower: number;
+  edgeFalloffNorm: number;
+  base: number;
+  resample: number | null;
+  resampleFactor: number;
+  gridBuffer: number | null;
+  gridBufferFactor: number;
+  depthMode: 'boundary' | 'centerline';
+  mergeBlendScale: number;
+  depthBlendScale: number;
+  sigilize: number;
+  sigilizeWeight: number;
+  heightSmooth: number;
+  heightSmoothWeight: number;
+  taperLen: number;
+  previewTaperPower: number;
+  tipRadius: number;
+  ridgePower: number;
+  bevel: number;
+  previewHeightSmooth: number;
+  previewHeightSmoothWeight: number;
+  previewResample: number;
+  simplify: number;
+  spread: number;
+  peak: number;
+  roughness: number;
+  metalness: number;
+  profile: 'linear' | 'round';
+  color: ColorRepresentation;
+  envMapIntensity: number;
+}
+
+export const SIGIL_DEFAULTS: {
+  interaction: { minDrawStep: number };
+  stroke: {
+    symmetry: number;
+    mirror: boolean;
+    phase: number;
+    center: Pt2;
+    thickness: number;
+    guides: boolean;
+  };
+  field: Record<string, number | string>;
+  melt: Record<string, number>;
+  preview: Record<string, number>;
+  surface: Record<string, number | string>;
+};
+
+export function createSigilState(overrides?: Partial<SigilState>): SigilState;
+export function shapeOptionsFromState(state: SigilState): ShapeOptions;
+export function sparsePreviewOptionsFromState(state: SigilState): SparseCurveOptions;
+export function chromeOptionsFromState(state: SigilState): ChromeOptions;
+
 export interface ChromeNodeMaterial extends MeshStandardNodeMaterial {
   sigilUniforms: { peakHeight: any; roughness: any };
 }
@@ -158,6 +229,10 @@ export interface SigilMesh extends Mesh {
 
 export function createSigil(paths: PathInput, opts?: SigilOptions): SigilMesh;
 export function createSigilAsync(paths: PathInput, opts?: SigilOptions): Promise<SigilMesh>;
+export function mergedSigilShapeOptions(overrides?: ShapeOptions): ShapeOptions;
+export function realtimeMergedShapeOptions(overrides?: ShapeOptions): ShapeOptions;
+export const DRAW_MERGE_RESOLUTION: number;
+export const REALTIME_MERGE_RESOLUTION: number;
 
 export function buildSigilGeometry(paths: PathInput, opts?: ShapeOptions): BufferGeometry;
 export function buildSigilGeometryAsync(paths: PathInput, opts?: ShapeOptions): Promise<BufferGeometry>;
@@ -315,6 +390,8 @@ export class DistanceField {
 export function fillRegion(
   field: DistanceField,
   threshold: number,
+  fieldSmooth?: number,
+  mergeBlendScale?: number,
 ): {
   positions: Float32Array;
   depth: Float32Array;

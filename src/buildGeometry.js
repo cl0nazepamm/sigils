@@ -44,6 +44,9 @@ import { buildGpuDistanceField } from './gpuDistanceField.js';
  * @param {number}  [opts.gridBuffer]    - extra grid margin around the stroke bounds
  * @param {[number,number]} [opts.referencePoint] - optional cull reference
  * @param {number}  [opts.referenceCullMin] - keep points with dist > this value
+ * @param {number}  [opts.fieldMergeBlendScale=8] - fieldSmooth divisor for fill implicit blend
+ * @param {number}  [opts.fieldDepthBlendScale=6] - fieldSmooth divisor for boundary depth blend
+ * @param {number}  [opts.heightSmoothWeight=0.5] - influence of each height blur pass
  * @param {'cpu'}    [opts.fieldBackend='cpu'] - sync builds always use CPU field rasterization
  * @returns {BufferGeometry}
  */
@@ -127,7 +130,9 @@ function prepareFieldInput(paths, opts) {
 
 function finishSigilGeometry(field, prepared, opts) {
   const { threshold, smooth } = prepared;
-  const region = fillRegion(field, threshold);
+  const fieldSmooth = Math.max(0, Math.floor(smooth));
+  const mergeScale = Math.max(1, opts.fieldMergeBlendScale ?? 8);
+  const region = fillRegion(field, threshold, fieldSmooth, mergeScale);
 
   if (region.count === 0) {
     // Nothing crossed the threshold; return an empty geometry rather than throw.
@@ -147,7 +152,10 @@ function finishSigilGeometry(field, prepared, opts) {
   const depthMode = opts.depthMode ?? 'boundary';
   if (depthMode === 'boundary') {
     const falloff = prepared.boundaryFalloff ?? opts.edgeFalloff ?? threshold;
-    applyBoundaryDepth(region, falloff, Math.max(0, Math.floor(opts.heightSmooth ?? smooth)));
+    const heightSmooth = Math.max(0, Math.floor(opts.heightSmooth ?? 0));
+    const depthScale = Math.max(1, opts.fieldDepthBlendScale ?? 6);
+    const heightSmoothWeight = opts.heightSmoothWeight ?? 0.5;
+    applyBoundaryDepth(region, falloff, heightSmooth, field, threshold, fieldSmooth, depthScale, heightSmoothWeight);
   } else if (sigilize > 0) {
     resampleCenterlineDepth(region, field, threshold);
   }
@@ -201,7 +209,7 @@ function blurRegionPositions(region, iterations, weight) {
   }
 }
 
-function applyBoundaryDepth(region, falloff, smoothPasses) {
+function applyBoundaryDepth(region, falloff, heightSmoothPasses, field, threshold, fieldSmooth, depthBlendScale, heightSmoothWeight) {
   const { positions, depth, grad, boundary, count, indices } = region;
   if (!boundary || boundary.length === 0) {
     depth.fill(1);
@@ -210,16 +218,22 @@ function applyBoundaryDepth(region, falloff, smoothPasses) {
   }
 
   const width = Math.max(1e-6, falloff);
-  const field = makeBoundaryField(positions, boundary, width);
+  const bfield = makeBoundaryField(positions, boundary, width);
+  const depthBlend = fieldSmooth > 0 ? Math.min(1, fieldSmooth / depthBlendScale) : 0;
 
   for (let i = 0; i < count; i++) {
     const x = positions[i * 3];
     const y = positions[i * 3 + 1];
-    depth[i] = Math.min(1, boundaryDistance(x, y, field, width) / width);
+    let d = Math.min(1, boundaryDistance(x, y, bfield, width) / width);
+    if (depthBlend > 0 && field?.depth) {
+      const fd = field.depth(x, y, threshold);
+      d = d * (1 - depthBlend) + fd * depthBlend;
+    }
+    depth[i] = d;
   }
 
-  if (smoothPasses > 0) {
-    smoothVertexScalar(depth, buildAdjacency(count, indices), smoothPasses, 0.5);
+  if (heightSmoothPasses > 0) {
+    smoothVertexScalar(depth, buildAdjacency(count, indices), heightSmoothPasses, clamp01(heightSmoothWeight ?? 0.5));
   }
 
   computeScalarGradient(positions, indices, depth, grad, count);
