@@ -1,0 +1,27 @@
+{
+  "description": "Default shape parameters for sigils",
+  "shape": {
+    "lineThickness": 0.16,
+    "isoThreshold": 0.55517578125,
+    "boundaryFalloffNorm": 0.3450927734375,
+    "resolution": 320,
+    "spiroCopies": 3,
+    "sigilize": 36,
+    "sigilizeWeight": 0.75,
+    "soften": 2,
+    "extrudeBase": 0.08,
+    "gridBuffer": null,
+    "flatten": true,
+    "depthMode": "boundary"
+  },
+  "look": {
+    "peakHeight": 404.7418212890625,
+    "peakHeightScale": 1000,
+    "roughness": 0.06,
+    "profile": "linear"
+  },
+  "referenceCull": {
+    "referencePoint": null,
+    "referenceCullMin": -12.60015869140625
+  }
+}
