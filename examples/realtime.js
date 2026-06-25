@@ -29,7 +29,7 @@ import { resampleByLength } from '../src/index.js';
 // ============================================================================
 
 const MAX_SEGS = 512;        // uniform-buffer capacity for base (pre-symmetry) segments
-const RESAMPLE = 0.02;       // world-space spacing of captured segments (denser = smoother joints)
+const RESAMPLE = 0.03;       // world-space spacing of captured segments (denser = smoother joints, but more cost)
 const PLANE_SIZE = 3.6;      // plane covers [-1.8, 1.8] in the draw domain
 const PLANE_DIV = 320;       // plane tessellation
 const CELL = PLANE_SIZE / PLANE_DIV;
@@ -161,7 +161,9 @@ const field = Fn(([pIn]) => {
 
   Loop({ start: int(0), end: uSym, type: 'int', condition: '<', name: 'k' }, ({ k }) => {
     const q = rot2(pIn, sector.mul(float(k)).negate()).toVar();
-    const qm = vec2(q.x, q.y.negate()); // query reflected across the sector axis
+    // mirror: FOLD the query across the sector axis (q.y -> |q.y|) so dihedral
+    // symmetry costs ONE cone per segment instead of also testing a reflected query.
+    const qf = vec2(q.x, mix(q.y, q.y.abs(), uMirror)).toVar();
 
     // WITHIN one sector: smin is the OPTIONAL LOCAL FUSE. With uMelt small the
     // poly-smin correction collapses to 0 for distant strokes (auto hard-min).
@@ -185,9 +187,7 @@ const field = Fn(([pIn]) => {
       const rdif = clamp(r1.sub(r2), segLen.negate(), segLen);
       const r1c = rmid.add(rdif.mul(0.5));
       const r2c = rmid.sub(rdif.mul(0.5));
-      // mirror on -> hard-min the reflected query for a crisp dihedral crease.
-      const dPlain = roundedCone(q, a, b, r1c, r2c);
-      const dUse = mix(dPlain, min(dPlain, roundedCone(qm, a, b, r1c, r2c)), uMirror);
+      const dUse = roundedCone(qf, a, b, r1c, r2c);
       dSec.assign(smin(dSec, dUse, uMelt));
     });
 
@@ -205,37 +205,44 @@ const field = Fn(([pIn]) => {
 // then a steep climb to a crisp apex crease (thin specular line, not a pillow);
 // uBevel subtracts a narrow t^24 notch -> twin-ridge 'fuller'. HEIGHT only; field() untouched.
 const BEVEL_EXP = float(24.0);
-const heightAt = Fn(([p]) => {
+// Knife-edge ridge height from a SIGNED field value (field is 0 at the edge,
+// -localRadius at the centerline, so depth = -field). A high flank exponent keeps a
+// flat skirt then a steep climb to a sharp apex crease; uBevel carves a central groove.
+const heightFromField = Fn(([f]) => {
   const half = uThickness.mul(0.5);
-  const t = clamp(field(p).negate().div(half.max(1e-4)), 0.0, 1.0);
+  const t = clamp(f.negate().div(half.max(1e-4)), 0.0, 1.0);
   const blade = t.pow(uRidge.max(0.25));        // flat skirt -> steep flanks -> sharp apex
   const groove = t.pow(BEVEL_EXP).mul(uBevel);  // narrow central notch (0 = single knife)
   return uPeak.mul(blade.sub(groove).max(0.0));
 });
 
-// height + analytic surface normal, packed as vec4(height, nx, ny, nz)
+// Returns vec4(centerField, nx, ny, nz). ONE field eval at the center (reused for
+// both the height AND the pre-reject) + two offset evals for the analytic-normal
+// gradient = 3 field evals per vertex (was 4). The field is the dominant per-vertex
+// cost, so dropping one eval is a flat ~25% vertex-stage saving.
 const surface = Fn(([p]) => {
-  const e = float(0.035); // gradient step spans ~2 segments → averages out per-vertex normal kinks
-  const h0 = heightAt(p);
-  const hx = heightAt(vec2(p.x.add(e), p.y));
-  const hy = heightAt(vec2(p.x, p.y.add(e)));
+  const e = float(0.035); // gradient step spans ~2 segments → averages out joint kinks
+  const f0 = field(p);
+  const h0 = heightFromField(f0);
+  const hx = heightFromField(field(vec2(p.x.add(e), p.y)));
+  const hy = heightFromField(field(vec2(p.x, p.y.add(e))));
   const n = vec3(h0.sub(hx).div(e), h0.sub(hy).div(e), 1.0).normalize();
-  return vec4(h0, n);
+  return vec4(f0, n);
 });
 
 const material = new THREE.MeshStandardNodeMaterial();
 const domain = positionGeometry.xy; // plane sits in XY at the origin → domain == world XY
 
-// Evaluate the surface (height + analytic normal) once per vertex and interpolate.
-// positionNode displaces the plane by the height; normalNode reflects chrome off
-// the SDF-gradient normal. Sharing one varying avoids recomputing the field.
+// Evaluate the surface (signed field + analytic normal) once per vertex and
+// interpolate. surf.x is the field (drives both displacement height and the
+// pre-reject); surf.yzw is the chrome normal.
 const surf = varying(surface(domain));
 // Chrome relief reads from the NORMAL (surf.yzw), which is independent of how far
 // we actually push the geometry. Displacing only a little keeps the silhouette the
 // clean per-pixel cutout at all angles (no faceted dome rim at grazing) while the
 // full-strength normal still gives crisp ridge reflections — a flat graphic sigil.
 const uReliefZ = uniform(0.35);  // 0 = flat (cutout-crisp), 1 = full physical dome
-material.positionNode = positionGeometry.add(vec3(0, 0, surf.x.mul(uReliefZ)));
+material.positionNode = positionGeometry.add(vec3(0, 0, heightFromField(surf.x).mul(uReliefZ)));
 
 // view-space normal shared by chrome shading and the emissive rim
 const viewNormal = transformNormalToView(surf.yzw.normalize());
@@ -256,7 +263,7 @@ material.emissiveNode = uRimColor.mul(rim).mul(uRimStrength);
 // interpolated vertex field: a fragment that's confidently inside/outside (beyond
 // the Lipschitz slack) skips the loop. A real If() branch is required — select()
 // would still evaluate the expensive path.
-const vField = varying(field(domain)); // field sampled per vertex, interpolated
+const vField = surf.x; // reuse the interpolated center field (shared with surface) — no extra eval
 material.opacityNode = Fn(() => {
   const thr = float(0.0);   // radius is baked into the distance -> inside is field <= 0
   const slack = float(SLACK);
