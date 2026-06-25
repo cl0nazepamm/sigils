@@ -171,7 +171,13 @@ the whole emblem as a signed-distance field every frame — kaleidoscope symmetr
 by domain-folding, a smooth-union (`smin`) melt, dome displacement with analytic
 normals, and a per-pixel silhouette. Drawing, symmetry, mirror, width, melt, peak
 and roughness are all live uniforms; nothing rebuilds, so the chrome forges under
-your cursor as you draw at 60–120 fps.
+your cursor as you draw.
+
+The per-pixel field is the dominant cost, so it's gated by a **vertex pre-reject**:
+the field is sampled once per vertex and interpolated, and any fragment that's
+confidently inside/outside the stroke (beyond the triangle's Lipschitz slack) skips
+the loop — only the thin boundary band evaluates the field per pixel. That keeps a
+light sigil near ~180 fps and roughly halves the cost of dense ones.
 
 ## Notes
 

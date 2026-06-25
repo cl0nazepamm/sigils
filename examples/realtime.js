@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
-  uniform, uniformArray, Fn, Loop, varying,
+  uniform, uniformArray, Fn, Loop, If, varying,
   float, int, vec2, vec3, vec4,
   cos, sin, clamp, mix, min, smoothstep, length, dot, select,
   positionGeometry, transformNormalToView,
@@ -30,6 +30,14 @@ import { resampleByLength } from '../src/index.js';
 
 const MAX_SEGS = 512;        // uniform-buffer capacity for base (pre-symmetry) segments
 const RESAMPLE = 0.04;       // world-space spacing of captured segments
+const PLANE_SIZE = 3.6;      // plane covers [-1.8, 1.8] in the draw domain
+const PLANE_DIV = 320;       // plane tessellation
+const CELL = PLANE_SIZE / PLANE_DIV;
+// Lipschitz slack: the field is a distance (gradient <= 1), so within one triangle
+// the true field differs from the interpolated vertex field by at most the longest
+// edge (cell * sqrt2). Pixels beyond this slack from the threshold are decided by
+// the cheap interpolated value; only the boundary band pays for the per-pixel field.
+const SLACK = CELL * 1.6;
 
 // ---------------------------------------------------------------- renderer ---
 const renderer = new THREE.WebGPURenderer({ antialias: true });
@@ -149,12 +157,28 @@ const surf = varying(surface(domain));
 material.positionNode = positionGeometry.add(vec3(0, 0, surf.x));
 material.normalNode = transformNormalToView(surf.yzw.normalize());
 
-// fragment: re-evaluate the field per pixel and keep only what's inside the
-// stroke → a crisp silhouette that doesn't depend on mesh resolution. An alpha
-// cutout (opacity 0/1 + alphaTest) is the reliable discard in a node material;
-// a bare .discard() gets tree-shaken when its result is unused.
-const inside = field(domain).lessThanEqual(uThickness.mul(0.5));
-material.opacityNode = select(inside, float(1.0), float(0.0));
+// fragment: keep only what's inside the stroke → a crisp silhouette that doesn't
+// depend on mesh resolution, via an alpha cutout (opacity 0/1 + alphaTest; a bare
+// .discard() gets tree-shaken when its result is unused).
+//
+// The per-pixel field loop is the dominant cost, so we pre-reject with the
+// interpolated vertex field: a fragment that's confidently inside/outside (beyond
+// the Lipschitz slack) skips the loop. A real If() branch is required — select()
+// would still evaluate the expensive path.
+const vField = varying(field(domain)); // field sampled per vertex, interpolated
+material.opacityNode = Fn(() => {
+  const thr = uThickness.mul(0.5);
+  const slack = float(SLACK);
+  const op = float(0.0).toVar();
+  If(thr.sub(vField).greaterThan(slack), () => {
+    op.assign(1.0);                                  // confidently inside
+  }).ElseIf(vField.sub(thr).greaterThan(slack), () => {
+    op.assign(0.0);                                  // confidently outside
+  }).Else(() => {
+    op.assign(select(field(domain).lessThanEqual(thr), float(1.0), float(0.0)));
+  });
+  return op;
+})();
 material.alphaTest = 0.5; // opaque alpha cutout → crisp edge + correct depth
 
 material.metalness = 1.0;
@@ -164,7 +188,7 @@ material.side = THREE.DoubleSide;
 
 // The plane: dense enough that the displaced dome reads smoothly. The silhouette
 // crispness comes from the per-pixel discard, not from this tessellation.
-const plane = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 3.6, 320, 320), material);
+const plane = new THREE.Mesh(new THREE.PlaneGeometry(PLANE_SIZE, PLANE_SIZE, PLANE_DIV, PLANE_DIV), material);
 scene.add(plane);
 
 // ---------------------------------------------------------------- draw io ----
