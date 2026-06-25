@@ -108,7 +108,7 @@ updateChromeMaterial(sigil.material, { peakHeight: 0.5, roughness: 0.02 });
 ```
 
 Shape options (`symmetry`, `thickness`, `resolution`, `sigilize`, `depthMode`,
-`base`, `center`) change the silhouette or baked attributes and need a rebuild:
+`base`, `center`, `spiroCopies`, `isoThreshold`, `fieldRangeMax`) change the silhouette or baked attributes and need a rebuild:
 
 ```js
 sigil.userData.sigil.rebuild(newStroke, { symmetry: 8, thickness: 0.2 });
@@ -120,8 +120,10 @@ sigil.userData.sigil.rebuild(newStroke, { symmetry: 8, thickness: 0.2 });
 import {
   buildSigilGeometry,   // strokes -> BufferGeometry (with aDepth/aGrad/aNormal/aDome)
   buildSigilGeometryAsync, // optional WebGPU compute distance-field backend
-  buildSparseCurveGeometry, // realtime curve-native BufferGeometry
-  buildGpuDistanceField, // raw WebGPU distance/taper field + CPU readback
+  buildSparseCurveGeometry, // sync sparse strips (preview path)
+  buildSparseCurveGeometryAsync, // GPU SDF merge by default
+  buildGpuFieldMeshAsync,
+  finishSigilGeometryFromField,
   createChromeMaterial, // TSL chrome NodeMaterial
   spirograph,           // hypotrochoid stroke (cusps + loops)
   radialSymmetry,       // strokes -> N rotated copies
@@ -157,27 +159,35 @@ npm install
 npm run example
 ```
 
-Drag to orbit. Keys: `1–6` spirograph preset · `[ ]` peak height · `- =`
-roughness · `r` cycle presets.
+Open http://localhost:5173/ — one page with a **Mode** switch:
 
-Want to draw your own stroke? Open `/draw.html` on the dev server — left-drag to
-sketch a curve, release to forge it into chrome. Strokes accumulate, and the
-**Symmetry** control turns a single stroke into a full radial emblem.
+| Mode | What it does |
+|------|----------------|
+| **Gallery** | Preset glyphs, full SDF pipeline, orbit with left-drag. Keys `1–6`, `r`, `[ ]`, `- =`. |
+| **Draw** | Sketch strokes; full `createSigilAsync` merge on release. |
+| **Realtime** | Sparse chrome preview while drawing; GPU SDF + marching squares merge on release. |
 
-### Realtime sparse-curve demo
+Legacy URLs redirect: `/draw.html` → `?mode=draw`, `/realtime.html` → `?mode=realtime`.
 
-`/realtime.html` is the low-latency path for drawing or streaming curve sets. It
-uses `buildSparseCurveGeometry()` to turn strokes into real raised triangles near
-the curves only; empty space emits no vertices and runs no fragment distance loop.
-The geometry rebuilds while drawing, but the rebuild is proportional to curve
-length and symmetry copies, not to a global field resolution.
+### Library surface
 
-The default profile is a boundary-distance roof: low at the rim, raised toward
-the center, split along the middle for a crisp metallic highlight, with a small
-flat underside so the shape reads as a solid object when orbiting. A sparse
-height blur (`heightSmooth`, `heightSmoothWeight`) adds the softer connected
-surface without rasterizing a global field. The `Taper`, `Tip`, `Ridge`,
-`Bevel`, `Smooth`, `Weight`, `Rim` and `Edge` sliders are live.
+```js
+import {
+  createSigil,
+  createSigilAsync,
+  buildSigilGeometry,
+  buildSigilGeometryAsync,
+  buildSparseCurveGeometry,        // sync sparse strips only
+  buildSparseCurveGeometryAsync,   // GPU SDF merge by default
+  buildGpuFieldMeshAsync,
+  finishSigilGeometryFromField,
+  createChromeMaterial,
+  updateChromeMaterial,
+} from 'sigils';
+```
+
+Sparse preview uses `buildSparseCurveGeometry()` — curve-native strips with no field sampling.
+Merged geometry uses `buildGpuFieldMeshAsync()` or `createSigilAsync()`.
 
 ## Notes
 

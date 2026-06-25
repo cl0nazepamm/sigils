@@ -9,11 +9,21 @@
 export { createSigil, createSigilAsync } from './createSigil.js';
 
 // Geometry pipeline (compose your own)
-export { buildSigilGeometry, buildSigilGeometryAsync } from './buildGeometry.js';
-export { buildSparseCurveGeometry } from './sparseCurveGeometry.js';
+export { buildSigilGeometry, buildSigilGeometryAsync, finishSigilGeometryFromField } from './buildGeometry.js';
+export { buildSparseCurveGeometry, buildSparseCurveGeometryAsync } from './sparseCurveGeometry.js';
 export { buildGpuDistanceField } from './gpuDistanceField.js';
+export { buildGpuFieldMeshAsync, buildGpuBlurredField } from './gpuFieldMesh.js';
+export { gpuSigilizePositions, cpuSigilizePositions, sigilizePositionsAsync } from './gpuSigilize.js';
 export { spirograph } from './spirograph.js';
 export { radialSymmetry } from './symmetry.js';
+export {
+  prepareStrokes,
+  stackRotatedCopies,
+  cullPointsByReference,
+  emblemParamsToOptions,
+  resolveFieldThreshold,
+  resolveBoundaryFalloff,
+} from './strokePipeline.js';
 export { DistanceField } from './distanceField.js';
 export { fillRegion } from './fillRegion.js';
 

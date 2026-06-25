@@ -1,5 +1,7 @@
 import { BufferAttribute, BufferGeometry, Float32BufferAttribute } from 'three';
 import { resampleByLength, toPathSet } from './internal/paths.js';
+import { buildGpuFieldMeshAsync } from './gpuFieldMesh.js';
+import { buildAdjacency } from './gpuSigilize.js';
 
 const TAU = Math.PI * 2;
 const DEFAULT_PROFILE = [
@@ -32,12 +34,16 @@ const DEFAULT_PROFILE = [
  * @param {number} [opts.heightSmoothWeight=1] - height blur influence per pass
  * @param {number} [opts.baseDepth=0.018] - flat underside depth, 0 disables sides
  * @param {number[]} [opts.profile] - normalized cross samples from -1 to 1
+ * @param {number[]} [opts.profile] - normalized cross samples from -1 to 1
  * @returns {BufferGeometry}
  */
 export function buildSparseCurveGeometry(paths, opts = {}) {
   const pathSet = toPathSet(paths);
   const positions = [];
   const uvs = [];
+  const depths = [];
+  const domes = [];
+  const normals = [];
   const indices = [];
   let baseSegments = 0;
   let drawnSegments = 0;
@@ -53,30 +59,59 @@ export function buildSparseCurveGeometry(paths, opts = {}) {
     baseSegments += segs;
 
     for (let k = 0; k < symmetry; k++) {
-      appendCurve(path, k, false, positions, uvs, indices, opts);
+      appendCurve(path, k, false, positions, uvs, depths, domes, normals, indices, opts);
       drawnSegments += segs;
       if (mirror) {
-        appendCurve(path, k, true, positions, uvs, indices, opts);
+        appendCurve(path, k, true, positions, uvs, depths, domes, normals, indices, opts);
         drawnSegments += segs;
       }
     }
   }
 
   const geometry = new BufferGeometry();
+  const vertCount = positions.length / 3;
+  const topStride = profileSamples(opts).length;
+  const hasBase = (opts.baseDepth ?? 0.018) > 0;
+  const rowStride = topStride + (hasBase ? 4 : 0);
   geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
   geometry.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
-  const indexArray = positions.length / 3 > 65535 ? new Uint32Array(indices) : new Uint16Array(indices);
+  geometry.setAttribute('aDepth', new Float32BufferAttribute(depths, 1));
+  geometry.setAttribute('aDome', new Float32BufferAttribute(domes, 1));
+  geometry.setAttribute('aNormal', new Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('aGrad', new Float32BufferAttribute(new Float32Array(vertCount * 2), 2));
+  geometry.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+  const indexArray = vertCount > 65535 ? new Uint32Array(indices) : new Uint16Array(indices);
   geometry.setIndex(new BufferAttribute(indexArray, 1));
-  geometry.computeVertexNormals();
+  computeDepthGradient(geometry);
   geometry.computeBoundingSphere();
   geometry.computeBoundingBox();
   geometry.userData.sparseCurveStats = {
     baseSegments,
     drawnSegments,
-    vertices: positions.length / 3,
-    profileSamples: profileSamples(opts).length,
+    vertices: vertCount,
+    profileSamples: topStride,
   };
+  geometry.userData.sparseCurveLayout = { topStride, rowStride, hasBase };
   return geometry;
+}
+
+/**
+ * Realtime build: GPU SDF field + marching-squares fill (merged topology).
+ * Falls back to sparse strips when `opts.fieldMesh === false`.
+ */
+export async function buildSparseCurveGeometryAsync(renderer, paths, opts = {}) {
+  if (opts.fieldMesh !== false && renderer) {
+    return buildGpuFieldMeshAsync(renderer, paths, {
+      ...opts,
+      taper: opts.taper ?? 1,
+      taperPower: opts.taperPower ?? 0.6,
+      sigilize: opts.fieldSigilize ?? opts.sigilize ?? 36,
+      sigilizeWeight: opts.sigilizeWeight ?? opts.fieldBlendStrength ?? 0.75,
+      base: opts.base ?? opts.baseDepth ?? 0.08,
+      heightSmooth: opts.heightSmooth ?? 2,
+    });
+  }
+  return buildSparseCurveGeometry(paths, opts);
 }
 
 function processStroke(stroke, opts) {
@@ -111,7 +146,7 @@ function processStroke(stroke, opts) {
   return { points, distance, total, closed: rawClosed };
 }
 
-function appendCurve(path, sectorIndex, mirrored, positions, uvs, indices, opts) {
+function appendCurve(path, sectorIndex, mirrored, positions, uvs, depths, domes, normals, indices, opts) {
   const profile = profileSamples(opts);
   const topStride = profile.length;
   const hasBase = (opts.baseDepth ?? 0.018) > 0;
@@ -153,23 +188,30 @@ function appendCurve(path, sectorIndex, mirrored, positions, uvs, indices, opts)
 
     for (let c = 0; c < topStride; c++) {
       const cross = profile[c];
+      const depth = peak > 0 ? heights[i * topStride + c] / peak : 0;
       positions.push(
         row.p[0] + row.nx * row.half * cross,
         row.p[1] + row.ny * row.half * cross,
-        heights[i * topStride + c],
+        0,
       );
       uvs.push(row.along, cross * 0.5 + 0.5);
+      depths.push(depth);
+      domes.push(1);
+      normals.push(0, 0, 1);
     }
 
     if (hasBase) {
-      const leftTop = heights[i * topStride];
-      const rightTop = heights[i * topStride + topStride - 1];
       const lx = row.p[0] - row.nx * row.half;
       const ly = row.p[1] - row.ny * row.half;
       const rx = row.p[0] + row.nx * row.half;
       const ry = row.p[1] + row.ny * row.half;
-      positions.push(lx, ly, leftTop, lx, ly, -baseDepth, rx, ry, rightTop, rx, ry, -baseDepth);
+      positions.push(lx, ly, 0, lx, ly, -baseDepth, rx, ry, 0, rx, ry, -baseDepth);
       uvs.push(row.along, 0, row.along, 0, row.along, 1, row.along, 1);
+      for (let k = 0; k < 4; k++) {
+        depths.push(0);
+        domes.push(0);
+      }
+      normals.push(-row.nx, -row.ny, 0, -row.nx, -row.ny, 0, row.nx, row.ny, 0, row.nx, row.ny, 0);
     }
   }
 
@@ -354,4 +396,66 @@ function smoothstep(a, b, x) {
 
 function clamp01(v) {
   return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+function computeDepthGradient(geometry) {
+  const positions = geometry.getAttribute('position');
+  const depth = geometry.getAttribute('aDepth');
+  const grad = geometry.getAttribute('aGrad');
+  const dome = geometry.getAttribute('aDome');
+  const index = geometry.index;
+  if (!positions || !depth || !grad || !index) return;
+
+  const count = positions.count;
+  const gra = grad.array;
+  gra.fill(0);
+
+  const { maxDeg, neighborCount, neighborIndices } = buildAdjacency(count, index.array);
+  const maxLen = 8;
+
+  for (let i = 0; i < count; i++) {
+    if (dome && dome.getX(i) < 0.5) continue;
+
+    const n = neighborCount[i];
+    if (n === 0) continue;
+
+    let gxx = 0;
+    let gxy = 0;
+    let gyy = 0;
+    let gxd = 0;
+    let gyd = 0;
+    const di = depth.getX(i);
+    const px = positions.getX(i);
+    const py = positions.getY(i);
+    const base = i * maxDeg;
+
+    for (let k = 0; k < n; k++) {
+      const j = neighborIndices[base + k];
+      if (dome && dome.getX(j) < 0.5) continue;
+      const dx = positions.getX(j) - px;
+      const dy = positions.getY(j) - py;
+      const dd = depth.getX(j) - di;
+      gxx += dx * dx;
+      gxy += dx * dy;
+      gyy += dy * dy;
+      gxd += dx * dd;
+      gyd += dy * dd;
+    }
+
+    const det = gxx * gyy - gxy * gxy;
+    if (Math.abs(det) < 1e-12) continue;
+
+    let gx = (gyy * gxd - gxy * gyd) / det;
+    let gy = (gxx * gyd - gxy * gxd) / det;
+    const len = Math.hypot(gx, gy);
+    if (len > maxLen) {
+      const s = maxLen / len;
+      gx *= s;
+      gy *= s;
+    }
+    gra[i * 2] = gx;
+    gra[i * 2 + 1] = gy;
+  }
+
+  grad.needsUpdate = true;
 }

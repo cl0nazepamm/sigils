@@ -42,6 +42,26 @@ export interface ShapeOptions {
   edgeFalloff?: number;
   /** Extra blur passes on the generated height/depth attribute. @default smooth */
   heightSmooth?: number;
+  /** Stacked rotational copies before radial symmetry (repeat-zone style). */
+  spiroCopies?: number;
+  /** Radians between stacked copies. @default TAU / spiroCopies */
+  spiroAngleStep?: number;
+  /** Iso cutoff on a normalized 0..1 field (used with fieldRangeMax). */
+  isoThreshold?: number;
+  /** World distance mapped to field value 1.0 (line thickness). */
+  fieldRangeMax?: number;
+  /** Boundary rim falloff in world units. */
+  boundaryFalloff?: number;
+  /** Boundary falloff as a fraction of fieldRangeMax. */
+  boundaryFalloffNorm?: number;
+  /** Grid margin beyond the stroke bounds. */
+  gridBuffer?: number;
+  /** Optional reference position for point culling. */
+  referencePoint?: Pt2;
+  /** Keep stroke points with distance greater than this value. */
+  referenceCullMin?: number;
+  /** Squash 3D points to XY before processing. @default true */
+  flatten?: boolean;
   /** Solid base depth; 0 = open shell (top surface only). @default 0 */
   base?: number;
   /** Distance-field backend. Async builds can use WebGPU compute. @default 'cpu' */
@@ -102,6 +122,18 @@ export interface SparseCurveOptions {
   heightSmoothWeight?: number;
   /** Flat underside depth; 0 disables side/base triangles. @default 0.018 */
   baseDepth?: number;
+  /** Grid resolution for GPU SDF merge. @default 220 */
+  fieldResolution?: number;
+  /** GPU blur passes on the SDF before marching squares. @default 4 */
+  fieldSmooth?: number;
+  /** Position-melt passes on the filled mesh. @default 36 */
+  fieldSigilize?: number;
+  /** Melt influence per pass on the merged mesh. @default 0.75 */
+  sigilizeWeight?: number;
+  /** @deprecated Use sigilizeWeight */
+  fieldBlendStrength?: number;
+  /** When false, skip GPU SDF mesh and use sparse strips only. @default true for async */
+  fieldMesh?: boolean;
   /** Normalized cross samples from -1 to 1. */
   profile?: number[];
 }
@@ -130,6 +162,38 @@ export function createSigilAsync(paths: PathInput, opts?: SigilOptions): Promise
 export function buildSigilGeometry(paths: PathInput, opts?: ShapeOptions): BufferGeometry;
 export function buildSigilGeometryAsync(paths: PathInput, opts?: ShapeOptions): Promise<BufferGeometry>;
 export function buildSparseCurveGeometry(paths: PathInput, opts?: SparseCurveOptions): BufferGeometry;
+export function buildSparseCurveGeometryAsync(
+  renderer: WebGPURenderer,
+  paths: PathInput,
+  opts?: SparseCurveOptions,
+): Promise<BufferGeometry>;
+export function finishSigilGeometryFromField(field: object, opts?: ShapeOptions): BufferGeometry;
+export function buildGpuFieldMeshAsync(
+  renderer: WebGPURenderer,
+  paths: PathInput,
+  opts?: SparseCurveOptions,
+): Promise<BufferGeometry>;
+export function buildGpuBlurredField(
+  renderer: WebGPURenderer,
+  paths: PathInput,
+  opts?: SparseCurveOptions,
+): Promise<object | null>;
+export function gpuSigilizePositions(
+  renderer: WebGPURenderer,
+  geometry: BufferGeometry,
+  opts?: { iterations?: number; sigilize?: number; weight?: number; sigilizeWeight?: number; activeAttribute?: string },
+): Promise<BufferGeometry>;
+export function cpuSigilizePositions(
+  geometry: BufferGeometry,
+  iterations: number,
+  weight?: number,
+  activeAttribute?: string,
+): BufferGeometry;
+export function sigilizePositionsAsync(
+  renderer: WebGPURenderer | null | undefined,
+  geometry: BufferGeometry,
+  opts?: { iterations?: number; sigilize?: number; weight?: number; sigilizeWeight?: number; activeAttribute?: string },
+): Promise<BufferGeometry>;
 export function buildGpuDistanceField(
   renderer: WebGPURenderer,
   paths: PathInput,
@@ -161,6 +225,67 @@ export function radialSymmetry(
   paths: PathInput,
   opts?: { symmetry?: number; center?: Pt2; phase?: number; mirror?: boolean },
 ): Polyline[];
+
+export function prepareStrokes(
+  paths: PathInput,
+  opts?: ShapeOptions,
+): {
+  set: Polyline[];
+  threshold: number;
+  smooth: number;
+  boundaryFalloff: number;
+  fieldOpts: {
+    resolution: number;
+    margin: number;
+    smooth: number;
+    taper: number;
+    taperPower: number;
+  };
+};
+
+export function stackRotatedCopies(
+  paths: PathInput,
+  opts?: { copies?: number; center?: Pt2; angleStep?: number },
+): Polyline[];
+
+export function cullPointsByReference(
+  set: Polyline[],
+  reference: Pt2,
+  minDistance: number,
+): Polyline[];
+
+export function emblemParamsToOptions(params?: {
+  lineThickness?: number;
+  thickness?: number;
+  resolution?: number;
+  spiroCopies?: number;
+  SPIRO?: number;
+  symmetry?: number;
+  sigilize?: number;
+  sigilizeWeight?: number;
+  soften?: number;
+  extrudeBase?: number;
+  isoThreshold?: number;
+  boundaryFalloffNorm?: number;
+  gridBuffer?: number;
+  referencePoint?: Pt2;
+  referenceCullMin?: number;
+  flatten?: boolean;
+  depthMode?: 'boundary' | 'centerline';
+  peakHeight?: number;
+  peak?: number;
+  peakHeightScale?: number;
+}): ShapeOptions & Pick<ChromeOptions, 'peakHeight'>;
+
+export function resolveFieldThreshold(
+  opts: Pick<ShapeOptions, 'isoThreshold' | 'fieldRangeMax' | 'thickness'>,
+  fallbackSize: number,
+): number;
+
+export function resolveBoundaryFalloff(
+  opts: Pick<ShapeOptions, 'edgeFalloff' | 'boundaryFalloff' | 'boundaryFalloffNorm' | 'fieldRangeMax'>,
+  threshold: number,
+): number;
 
 export class DistanceField {
   constructor(paths: PathInput, opts?: {

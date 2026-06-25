@@ -2,92 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="icon" href="data:," />
-    <title>sigils — draw a curve</title>
-    <style>
-      :root { color-scheme: dark; }
-      html, body { margin: 0; height: 100%; background: #0b0b0d; overflow: hidden; }
-      #stage { touch-action: none; cursor: crosshair; }
-      #info {
-        position: fixed; left: 12px; bottom: 12px; z-index: 10;
-        font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
-        color: #8a8a93; pointer-events: none; user-select: none;
-      }
-      #info b { color: #cfcfd6; }
-      #panel {
-        position: fixed; top: 14px; right: 14px; z-index: 20;
-        width: min(300px, calc(100vw - 28px)); max-height: calc(100vh - 28px);
-        overflow: auto; padding: 14px;
-        color: #e9e6dc; background: rgba(14, 14, 15, 0.78);
-        border: 1px solid rgba(255, 255, 255, 0.16);
-        border-radius: 8px; backdrop-filter: blur(14px);
-        box-shadow: 0 18px 54px rgba(0, 0, 0, 0.42);
-        font: 12px/1.35 ui-monospace, Menlo, Consolas, monospace;
-      }
-      #panel h2 {
-        margin: 0 0 12px; font: 700 13px/1 ui-monospace, Menlo, Consolas, monospace;
-        color: #fff; text-transform: uppercase;
-      }
-      .control-row { display: grid; grid-template-columns: 78px 1fr 48px; gap: 8px; align-items: center; margin: 9px 0; }
-      .control-row label { color: #c5c2bb; white-space: nowrap; }
-      .control-row input[type="range"] { width: 100%; accent-color: #d8d3c8; }
-      .control-row output { color: #f7f5ef; text-align: right; }
-      .control-row.check { grid-template-columns: 78px 1fr; }
-      .control-row.check input { justify-self: start; accent-color: #d8d3c8; }
-      .buttons { display: flex; gap: 8px; margin-top: 14px; }
-      .buttons button {
-        flex: 1; padding: 7px 8px; cursor: pointer;
-        color: #f7f5ef; background: rgba(255,255,255,0.08);
-        border: 1px solid rgba(255,255,255,0.18); border-radius: 5px;
-        font: inherit;
-      }
-      .buttons button:hover { background: rgba(255,255,255,0.16); }
-      .buttons button:active { background: rgba(255,255,255,0.24); }
-      .note { margin-top: 12px; color: #8a8a93; }
-    </style>
+    <meta http-equiv="refresh" content="0; url=./index.html?mode=draw" />
+    <title>sigils — draw redirect</title>
   </head>
   <body>
-    <div id="panel">
-      <h2>Draw a sigil</h2>
-      <div class="control-row">
-        <label for="symmetry">Symmetry</label>
-        <input id="symmetry" type="range" min="1" max="12" step="1" value="6" />
-        <output id="symmetry-out">6</output>
-      </div>
-      <div class="control-row check">
-        <label for="mirror">Mirror</label>
-        <input id="mirror" type="checkbox" />
-      </div>
-      <div class="control-row">
-        <label for="thickness">Width</label>
-        <input id="thickness" type="range" min="0.04" max="0.30" step="0.005" value="0.14" />
-        <output id="thickness-out">0.14</output>
-      </div>
-      <div class="control-row">
-        <label for="peak">Peak</label>
-        <input id="peak" type="range" min="0" max="0.45" step="0.005" value="0.14" />
-        <output id="peak-out">0.14</output>
-      </div>
-      <div class="control-row">
-        <label for="roughness">Rough</label>
-        <input id="roughness" type="range" min="0" max="0.35" step="0.005" value="0.05" />
-        <output id="roughness-out">0.05</output>
-      </div>
-      <div class="control-row check">
-        <label for="guides">Guides</label>
-        <input id="guides" type="checkbox" checked />
-      </div>
-      <div class="buttons">
-        <button id="undo" type="button">Undo</button>
-        <button id="clear" type="button">Clear</button>
-      </div>
-      <div class="note">Left-drag to draw a stroke. Right-drag orbits, scroll zooms.</div>
-    </div>
-    <div id="info">
-      <b>sigils</b> — draw with the mouse, release to forge chrome<br />
-      strokes accumulate · <b>Symmetry</b> turns one stroke into an emblem
-    </div>
-    <script type="module" src="./draw.js"></script>
+    <p>Moved to <a href="./index.html?mode=draw">index.html?mode=draw</a></p>
   </body>
 </html>

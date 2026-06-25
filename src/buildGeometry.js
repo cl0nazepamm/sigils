@@ -15,8 +15,7 @@
  */
 
 import { BufferGeometry, BufferAttribute } from 'three';
-import { toPathSet, resampleByLength, boundsOf } from './internal/paths.js';
-import { radialSymmetry } from './symmetry.js';
+import { prepareStrokes } from './strokePipeline.js';
 import { DistanceField } from './distanceField.js';
 import { fillRegion } from './fillRegion.js';
 import { buildGpuDistanceField } from './gpuDistanceField.js';
@@ -38,6 +37,13 @@ import { buildGpuDistanceField } from './gpuDistanceField.js';
  * @param {'boundary'|'centerline'} [opts.depthMode='boundary'] - height field source
  * @param {number}  [opts.edgeFalloff]   - boundary distance that reaches full height
  * @param {number}  [opts.base=0]        - solid base depth (0 = open shell, top only)
+ * @param {number}  [opts.spiroCopies]    - stacked rotational copies before symmetry
+ * @param {number}  [opts.isoThreshold]  - iso cutoff on a 0..1 normalized field
+ * @param {number}  [opts.fieldRangeMax] - world distance mapped to field 1.0
+ * @param {number}  [opts.boundaryFalloffNorm] - rim falloff as a fraction of fieldRangeMax
+ * @param {number}  [opts.gridBuffer]    - extra grid margin around the stroke bounds
+ * @param {[number,number]} [opts.referencePoint] - optional cull reference
+ * @param {number}  [opts.referenceCullMin] - keep points with dist > this value
  * @param {'cpu'}    [opts.fieldBackend='cpu'] - sync builds always use CPU field rasterization
  * @returns {BufferGeometry}
  */
@@ -83,39 +89,39 @@ export async function buildSigilGeometryAsync(paths, opts = {}) {
   return geo;
 }
 
-function prepareFieldInput(paths, opts) {
-  const { symmetry = 1, phase = 0, mirror = false, resolution = 240 } = opts;
-
-  // 1) symmetry. Resample fine enough that the curve itself never facets along
-  //    its length (segments well below the stroke width).
-  let set = toPathSet(paths);
-  const size = Math.max(boundsOf(set).width, boundsOf(set).height, 1e-6);
-  const thickness = opts.thickness ?? size * 0.06;
-  const resample = opts.resample ?? thickness * 0.12;
-
-  set = set.map((p) => resampleByLength(p, resample));
-  if (symmetry > 1 || mirror) {
-    set = radialSymmetry(set, { symmetry, phase, mirror, center: opts.center });
-  }
-
-  // 2) distance field + 3) filled marching squares.
-  // Keep blur light so corners/tips/cusps stay sharp; taper resolves stroke ends
-  // to points instead of round caps.
-  const threshold = thickness * 0.5;
-  const smooth = opts.smooth ?? 3; // only smooths height/normals; outline stays sharp
-  const taper = opts.taper ?? 1;
-  const taperPower = opts.taperPower ?? 0.6;
-  return {
-    set,
+/**
+ * Turn a distance field (CPU or GPU-readback) into chrome-ready fill mesh.
+ *
+ * @param {import('./distanceField.js').DistanceField|object} field
+ * @param {object} [opts]
+ * @returns {BufferGeometry}
+ */
+export function finishSigilGeometryFromField(field, opts = {}) {
+  const thickness = opts.thickness ?? opts.fieldRangeMax ?? 0.14;
+  const threshold = opts.threshold ?? thickness * 0.5;
+  const prepared = {
     threshold,
-    smooth,
-    fieldOpts: {
-      resolution,
-      margin: threshold * 1.5,
-      smooth,
-      taper,
-      taperPower,
-    },
+    smooth: opts.smooth ?? opts.fieldSmooth ?? 3,
+    boundaryFalloff: opts.edgeFalloff ?? opts.boundaryFalloff ?? thickness * 0.5,
+  };
+  return finishSigilGeometry(field, prepared, {
+    depthMode: 'boundary',
+    heightSmooth: opts.heightSmooth ?? 2,
+    sigilize: opts.sigilize ?? opts.fieldSigilize ?? 36,
+    sigilizeWeight: opts.sigilizeWeight ?? opts.fieldBlendStrength ?? 0.75,
+    base: opts.base ?? opts.baseDepth ?? 0,
+    ...opts,
+  });
+}
+
+function prepareFieldInput(paths, opts) {
+  const prepared = prepareStrokes(paths, opts);
+  return {
+    set: prepared.set,
+    threshold: prepared.threshold,
+    smooth: prepared.smooth,
+    boundaryFalloff: prepared.boundaryFalloff,
+    fieldOpts: prepared.fieldOpts,
   };
 }
 
@@ -140,7 +146,8 @@ function finishSigilGeometry(field, prepared, opts) {
   // crossings and interiors more like the final raised surface.
   const depthMode = opts.depthMode ?? 'boundary';
   if (depthMode === 'boundary') {
-    applyBoundaryDepth(region, opts.edgeFalloff ?? threshold, Math.max(0, Math.floor(opts.heightSmooth ?? smooth)));
+    const falloff = prepared.boundaryFalloff ?? opts.edgeFalloff ?? threshold;
+    applyBoundaryDepth(region, falloff, Math.max(0, Math.floor(opts.heightSmooth ?? smooth)));
   } else if (sigilize > 0) {
     resampleCenterlineDepth(region, field, threshold);
   }
