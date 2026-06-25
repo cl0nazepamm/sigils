@@ -19,6 +19,7 @@ import { prepareStrokes } from './strokePipeline.js';
 import { DistanceField } from './distanceField.js';
 import { fillRegion } from './fillRegion.js';
 import { buildGpuDistanceField } from './gpuDistanceField.js';
+import { gpuBlurRegionPositions } from './gpuSigilize.js';
 
 /**
  * @param {*} paths - one stroke or an array of strokes (see toPathSet)
@@ -87,7 +88,7 @@ export async function buildSigilGeometryAsync(paths, opts = {}) {
   }
 
   if (!field) field = new DistanceField(prepared.set, prepared.fieldOpts);
-  const geo = finishSigilGeometry(field, prepared, opts);
+  const geo = await finishSigilGeometryAsync(field, prepared, opts);
   geo.userData.fieldBackend = backend;
   return geo;
 }
@@ -129,15 +130,8 @@ function prepareFieldInput(paths, opts) {
 }
 
 function finishSigilGeometry(field, prepared, opts) {
-  const { threshold, smooth } = prepared;
-  const fieldSmooth = Math.max(0, Math.floor(smooth));
-  const mergeScale = Math.max(1, opts.fieldMergeBlendScale ?? 8);
-  const region = fillRegion(field, threshold, fieldSmooth, mergeScale);
-
-  if (region.count === 0) {
-    // Nothing crossed the threshold; return an empty geometry rather than throw.
-    return new BufferGeometry();
-  }
+  const region = buildFillRegion(field, prepared, opts);
+  if (!region) return new BufferGeometry();
 
   // Point-position blur gives the filled marching-squares result its melted,
   // logo-like sigil shape instead of a literal fattened stroke.
@@ -145,6 +139,66 @@ function finishSigilGeometry(field, prepared, opts) {
   if (sigilize > 0) {
     blurRegionPositions(region, sigilize, opts.sigilizeWeight ?? 1);
   }
+
+  return regionToGeometry(region, field, prepared, opts);
+}
+
+/**
+ * Async twin of {@link finishSigilGeometry}: identical pipeline, but the sigilize
+ * point-blur — the heaviest CPU loop, default 36 passes over every vertex — runs
+ * on the GPU when `opts.renderer` is a WebGPURenderer, falling back to the CPU
+ * blur on any failure. Marching squares, boundary depth and solidify stay on the
+ * CPU because they emit variable topology.
+ */
+async function finishSigilGeometryAsync(field, prepared, opts) {
+  const region = buildFillRegion(field, prepared, opts);
+  if (!region) return new BufferGeometry();
+
+  const sigilize = Math.max(0, Math.floor(opts.sigilize ?? 0));
+  let sigilizeBackend = 'none';
+  if (sigilize > 0) {
+    const weight = opts.sigilizeWeight ?? 1;
+    if (opts.renderer && typeof opts.renderer.computeAsync === 'function') {
+      try {
+        await gpuBlurRegionPositions(opts.renderer, region, sigilize, weight);
+        sigilizeBackend = 'gpu';
+      } catch (error) {
+        if (opts.onGpuFallback) opts.onGpuFallback(error);
+        else console.warn('sigils: GPU sigilize failed; using CPU.', error);
+      }
+    }
+    if (sigilizeBackend !== 'gpu') {
+      blurRegionPositions(region, sigilize, weight);
+      sigilizeBackend = 'cpu';
+    }
+  }
+
+  const geo = regionToGeometry(region, field, prepared, opts);
+  geo.userData.sigilizeBackend = sigilizeBackend;
+  return geo;
+}
+
+/**
+ * Marching-squares fill of the implicit field. Returns null when nothing crosses
+ * the threshold so callers can emit an empty geometry rather than throw.
+ */
+function buildFillRegion(field, prepared, opts) {
+  const { threshold, smooth } = prepared;
+  const fieldSmooth = Math.max(0, Math.floor(smooth));
+  const mergeScale = Math.max(1, opts.fieldMergeBlendScale ?? 8);
+  const region = fillRegion(field, threshold, fieldSmooth, mergeScale);
+  return region.count === 0 ? null : region;
+}
+
+/**
+ * Shared tail of both finish paths: boundary (or centerline) depth, then
+ * solidify into the domed shell. Runs after the CPU/GPU sigilize blur has
+ * settled `region.positions`.
+ */
+function regionToGeometry(region, field, prepared, opts) {
+  const { threshold, smooth } = prepared;
+  const fieldSmooth = Math.max(0, Math.floor(smooth));
+  const sigilize = Math.max(0, Math.floor(opts.sigilize ?? 0));
 
   // The vertical profile is driven from distance to the finished boundary edge.
   // The older centerline field is still available, but boundary depth handles
@@ -160,7 +214,7 @@ function finishSigilGeometry(field, prepared, opts) {
     resampleCenterlineDepth(region, field, threshold);
   }
 
-  // 4) solidify into top dome (+ optional walls and base).
+  // solidify into top dome (+ optional walls and base).
   const base = Math.max(0, opts.base ?? 0);
   return solidify(region, base);
 }

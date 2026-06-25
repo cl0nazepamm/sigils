@@ -11,6 +11,7 @@ import {
   sqrt,
   storage,
   vec2,
+  vec4,
 } from 'three/tsl';
 
 import { toPathSet, boundsOf } from './internal/paths.js';
@@ -83,16 +84,112 @@ export async function buildGpuDistanceField(renderer, paths, opts = {}) {
   })().compute(total);
 
   await renderer.computeAsync(computeField);
+
+  // Field smoothing (the distS/weightS height field) runs on the GPU when there
+  // are passes to do, packed alongside the untouched raw field into one vec4
+  // buffer so the readback stays a single sync. Marching squares still consumes
+  // both on the CPU, so the readback itself can't go away yet — only the
+  // per-cell blur loops (formerly finishSmoothing/blurArray) move to the GPU.
+  const smoothPasses = Math.max(0, Math.floor(field.smooth));
+  if (smoothPasses > 0) {
+    try {
+      const packed = await smoothFieldAndReadback(renderer, resultAttr, field.width, field.height, smoothPasses);
+      field.distS = new Float32Array(total);
+      field.weightS = new Float32Array(total);
+      for (let i = 0; i < total; i++) {
+        field.dist[i] = packed[i * 4];
+        field.weight[i] = packed[i * 4 + 1];
+        field.distS[i] = packed[i * 4 + 2];
+        field.weightS[i] = packed[i * 4 + 3];
+      }
+      return field;
+    } catch {
+      // GPU smoothing unavailable: fall back to a raw readback + CPU blur below,
+      // keeping the GPU rasterization we already paid for.
+    }
+  }
+
   const buffer = await renderer.getArrayBufferAsync(resultAttr);
   const packed = new Float32Array(buffer);
-
   for (let i = 0; i < total; i++) {
     field.dist[i] = packed[i * 2];
     field.weight[i] = packed[i * 2 + 1];
   }
-
   field.finishSmoothing();
   return field;
+}
+
+/**
+ * GPU separable 3-tap box blur of the raw vec2 (dist, weight) field. The blurred
+ * field is packed together with the untouched raw field into a single vec4
+ * buffer and read back in one sync. Matches the CPU {@link blurArray} exactly:
+ * same edge-clamped kernel, same horizontal-then-vertical order per pass.
+ *
+ * @param {import('three/webgpu').WebGPURenderer} renderer
+ * @param {import('three/webgpu').StorageBufferAttribute} rawAttr - raw vec2 field, left intact
+ * @param {number} gw
+ * @param {number} gh
+ * @param {number} passes
+ * @returns {Promise<Float32Array>} interleaved vec4 per cell: [rawDist, rawWeight, smDist, smWeight]
+ */
+async function smoothFieldAndReadback(renderer, rawAttr, gw, gh, passes) {
+  const total = gw * gh;
+  const bufA = new StorageBufferAttribute(total, 2);
+  const bufB = new StorageBufferAttribute(total, 2);
+
+  // Pass 0 reads the raw field; later passes ping-pong A<->B with the result
+  // always landing in B. rawAttr is never written, so it survives for the pack.
+  let src = rawAttr;
+  for (let p = 0; p < passes; p++) {
+    await renderer.computeAsync(blurKernel(src, bufA, gw, gh, total, true));
+    await renderer.computeAsync(blurKernel(bufA, bufB, gw, gh, total, false));
+    src = bufB;
+  }
+
+  const packAttr = new StorageBufferAttribute(total, 4);
+  const raw = storage(rawAttr, 'vec2', total).toReadOnly();
+  const sm = storage(bufB, 'vec2', total).toReadOnly();
+  const out = storage(packAttr, 'vec4', total);
+  const pack = Fn(() => {
+    const r = raw.element(instanceIndex);
+    const s = sm.element(instanceIndex);
+    out.element(instanceIndex).assign(vec4(r.x, r.y, s.x, s.y));
+  })().compute(total);
+  await renderer.computeAsync(pack);
+
+  const buffer = await renderer.getArrayBufferAsync(packAttr);
+  return new Float32Array(buffer);
+}
+
+/**
+ * One separable direction of the box blur. `horizontal` picks the kernel at
+ * build time (no in-shader branch). Neighbor clamping uses select() so the uint
+ * index math never underflows at the grid edges — equivalent to max(i-1,0) and
+ * min(i+1,n-1) without leaving the unsigned domain the rest of the file uses.
+ */
+function blurKernel(srcAttr, dstAttr, gw, gh, total, horizontal) {
+  const src = storage(srcAttr, 'vec2', total).toReadOnly();
+  const dst = storage(dstAttr, 'vec2', total);
+  return Fn(() => {
+    const ix = instanceIndex.mod(gw);
+    const iy = instanceIndex.div(gw);
+    let idxM;
+    let idxP;
+    if (horizontal) {
+      const i0 = select(ix.greaterThan(0), ix.sub(1), ix);
+      const i1 = select(ix.lessThan(gw - 1), ix.add(1), ix);
+      idxM = iy.mul(gw).add(i0);
+      idxP = iy.mul(gw).add(i1);
+    } else {
+      const j0 = select(iy.greaterThan(0), iy.sub(1), iy);
+      const j1 = select(iy.lessThan(gh - 1), iy.add(1), iy);
+      idxM = j0.mul(gw).add(ix);
+      idxP = j1.mul(gw).add(ix);
+    }
+    dst.element(instanceIndex).assign(
+      src.element(idxM).add(src.element(instanceIndex)).add(src.element(idxP)).mul(1 / 3),
+    );
+  })().compute(total);
 }
 
 class HybridDistanceField {
