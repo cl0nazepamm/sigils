@@ -19,7 +19,7 @@ export async function createDemoContext() {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0b0b0d);
 
-  const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 100);
+  const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 100);
   camera.up.set(0, 1, 0);
   camera.position.set(0, -0.85, 3.7);
 

@@ -9,7 +9,9 @@
 export { createSigil, createSigilAsync } from './createSigil.js';
 export {
   SIGIL_DEFAULTS,
+  DRAW_DEMO_DEFAULTS,
   createSigilState,
+  createDrawDemoState,
   shapeOptionsFromState,
   sparsePreviewOptionsFromState,
   chromeOptionsFromState,

@@ -102,3 +102,24 @@ export function mountControlPanel(root, specs, state, { onChange, onLive, signal
 
   return ui;
 }
+
+/** Push current state values back into mounted control inputs. */
+export function syncControlPanelToState(ui, state, root = document) {
+  for (const [key, { spec, input, row }] of ui) {
+    const v = state[key];
+    if (spec.type === 'check') {
+      input.checked = !!v;
+      continue;
+    }
+    if (spec.type === 'select') {
+      input.value = String(v ?? spec.options[0][0]);
+      continue;
+    }
+    input.value = v;
+    const out = row.querySelector('output') ?? root.querySelector(`#${key}-out`);
+    if (out) {
+      const decimals = String(spec.step).includes('.') ? String(spec.step).split('.')[1].length : 0;
+      out.textContent = spec.int ? String(v | 0) : Number(v).toFixed(decimals);
+    }
+  }
+}

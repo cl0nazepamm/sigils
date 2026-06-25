@@ -3,13 +3,14 @@ import {
   buildSigilGeometryAsync,
   createChromeMaterial,
   createSigilState,
+  createDrawDemoState,
   shapeOptionsFromState,
   sparsePreviewOptionsFromState,
   chromeOptionsFromState,
   updateChromeMaterial,
 } from '../../src/index.js';
 import { createDrawPlane } from '../shared/demoContext.js';
-import { mountControlPanel } from '../shared/controlPanel.js';
+import { mountControlPanel, syncControlPanelToState } from '../shared/controlPanel.js';
 import { DEMO_CONTROL_SPECS } from '../shared/demoControlSpecs.js';
 
 export const meta = {
@@ -39,6 +40,7 @@ export function mount(ctx, { panelRoot, infoRoot }) {
     </div>
     <div id="controls"></div>
     <div class="buttons">
+      <button id="defaults" type="button">Draw defaults</button>
       <button id="undo" type="button">Undo</button>
       <button id="clear" type="button">Clear</button>
     </div>
@@ -50,7 +52,7 @@ export function mount(ctx, { panelRoot, infoRoot }) {
   const controlsRoot = panelRoot.querySelector('#controls');
   const sigilMaterial = createChromeMaterial(chromeOptionsFromState(state));
 
-  mountControlPanel(controlsRoot, DEMO_CONTROL_SPECS, state, {
+  const controlUi = mountControlPanel(controlsRoot, DEMO_CONTROL_SPECS, state, {
     onChange: (key) => {
       if (key === 'guides') refreshGuides();
       refreshPreview();
@@ -84,6 +86,7 @@ export function mount(ctx, { panelRoot, infoRoot }) {
   let lastError = '';
   let blendBackend = '—';
   let drawing = false;
+  let holdPreviewUntilRebuild = false;
   let activePointer = null;
   let orbiting = false;
   let orbitPointer = null;
@@ -93,9 +96,19 @@ export function mount(ctx, { panelRoot, infoRoot }) {
   const orbitSpherical = new THREE.Spherical();
 
   const ui = {
+    defaults: panelRoot.querySelector('#defaults'),
     undo: panelRoot.querySelector('#undo'),
     clear: panelRoot.querySelector('#clear'),
   };
+
+  function applyDrawDefaults() {
+    Object.assign(state, createDrawDemoState());
+    syncControlPanelToState(controlUi, state, panelRoot);
+    updateChromeMaterial(sigilMaterial, chromeOptionsFromState(state));
+    refreshGuides();
+    refreshPreview();
+    scheduleRebuild(0);
+  }
 
   function allStrokes() {
     return current.length >= 2 ? [...strokes, current] : strokes;
@@ -117,14 +130,34 @@ export function mount(ctx, { panelRoot, infoRoot }) {
     }
   }
 
+  function clearPreviewMesh() {
+    previewMesh.visible = false;
+    const old = previewMesh.geometry;
+    previewMesh.geometry = new THREE.BufferGeometry();
+    old.dispose();
+  }
+
+  function updateVertexCount() {
+    const committed = sigilMesh.geometry.getAttribute('position')?.count ?? 0;
+    const preview = previewMesh.visible
+      ? (previewMesh.geometry.getAttribute('position')?.count ?? 0)
+      : 0;
+    vertexCount = committed + preview;
+  }
+
   function refreshPreview() {
+    if (holdPreviewUntilRebuild && !drawing) {
+      updateVertexCount();
+      return;
+    }
+
     if (!drawing || current.length < 2) {
-      previewMesh.visible = false;
-      const old = previewMesh.geometry;
-      previewMesh.geometry = new THREE.BufferGeometry();
-      old.dispose();
-      const committed = sigilMesh.geometry.getAttribute('position')?.count ?? 0;
-      vertexCount = committed;
+      if (holdPreviewUntilRebuild) {
+        updateVertexCount();
+        return;
+      }
+      clearPreviewMesh();
+      updateVertexCount();
       return;
     }
 
@@ -133,8 +166,7 @@ export function mount(ctx, { panelRoot, infoRoot }) {
     previewMesh.geometry = geometry;
     old.dispose();
     previewMesh.visible = (geometry.getAttribute('position')?.count ?? 0) > 0;
-    const committed = sigilMesh.geometry.getAttribute('position')?.count ?? 0;
-    vertexCount = committed + (geometry.getAttribute('position')?.count ?? 0);
+    updateVertexCount();
   }
 
   async function rebuild() {
@@ -145,7 +177,9 @@ export function mount(ctx, { panelRoot, infoRoot }) {
         sigilMesh.geometry = new THREE.BufferGeometry();
         old.dispose();
         sigilMesh.visible = false;
-        vertexCount = previewMesh.geometry.getAttribute('position')?.count ?? 0;
+        holdPreviewUntilRebuild = false;
+        clearPreviewMesh();
+        vertexCount = 0;
         blendBackend = '—';
         return;
       }
@@ -163,8 +197,6 @@ export function mount(ctx, { panelRoot, infoRoot }) {
       }
 
       const committedVerts = geometry.getAttribute('position')?.count ?? 0;
-      const previewVerts = previewMesh.geometry.getAttribute('position')?.count ?? 0;
-      vertexCount = committedVerts + previewVerts;
       blendBackend = geometry.userData.fieldBackend
         ?? geometry.userData.sigilizeBackend
         ?? geometry.userData.buildBackend
@@ -174,6 +206,10 @@ export function mount(ctx, { panelRoot, infoRoot }) {
       sigilMesh.geometry = geometry;
       oldGeometry.dispose();
       sigilMesh.visible = committedVerts > 0;
+
+      holdPreviewUntilRebuild = false;
+      if (!drawing) clearPreviewMesh();
+      updateVertexCount();
     } catch (error) {
       lastError = error?.message ?? String(error);
       console.error('sigils rebuild failed', error);
@@ -196,10 +232,14 @@ export function mount(ctx, { panelRoot, infoRoot }) {
     if (!drawing) return;
     drawing = false;
     activePointer = null;
-    if (current.length >= 2) strokes.push(current);
+    if (current.length >= 2) {
+      strokes.push(current);
+      holdPreviewUntilRebuild = true;
+    } else {
+      refreshPreview();
+    }
     current = [];
     refreshGuides();
-    refreshPreview();
     rebuild();
   }
 
@@ -257,9 +297,12 @@ export function mount(ctx, { panelRoot, infoRoot }) {
     orbitPointer = null;
   }
 
+  ui.defaults.addEventListener('click', applyDrawDefaults, { signal });
   ui.undo.addEventListener('click', () => {
     if (drawing) finishStroke();
     strokes.pop();
+    holdPreviewUntilRebuild = false;
+    clearPreviewMesh();
     refreshGuides();
     rebuild();
   }, { signal });
@@ -267,8 +310,9 @@ export function mount(ctx, { panelRoot, infoRoot }) {
     if (drawing) finishStroke();
     strokes.length = 0;
     current = [];
+    holdPreviewUntilRebuild = false;
+    clearPreviewMesh();
     refreshGuides();
-    refreshPreview();
     rebuild();
   }, { signal });
 

@@ -207,6 +207,12 @@ export const SIGIL_DEFAULTS: {
 };
 
 export function createSigilState(overrides?: Partial<SigilState>): SigilState;
+export function createDrawDemoState(overrides?: Partial<SigilState>): SigilState;
+export const DRAW_DEMO_DEFAULTS: Partial<SigilState> & {
+  center: Pt2;
+  resolution: number;
+  minDrawStep: number;
+};
 export function shapeOptionsFromState(state: SigilState): ShapeOptions;
 export function sparsePreviewOptionsFromState(state: SigilState): SparseCurveOptions;
 export function chromeOptionsFromState(state: SigilState): ChromeOptions;

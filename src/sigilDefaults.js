@@ -5,36 +5,61 @@
 export const DRAW_MERGE_RESOLUTION = 460;
 export const REALTIME_MERGE_RESOLUTION = 280;
 
+/** Demo defaults matching the former draw.html commit path. */
+export const DRAW_DEMO_DEFAULTS = {
+  symmetry: 6,
+  mirror: false,
+  thickness: 0.14,
+  center: [0, 0],
+  resolution: DRAW_MERGE_RESOLUTION,
+  backend: 'hybrid',
+  smooth: 3,
+  taper: 1,
+  taperPower: 1.05,
+  depthMode: 'boundary',
+  edgeFalloffNorm: 0.5,
+  sigilize: 36,
+  sigilizeWeight: 0.75,
+  heightSmooth: 2,
+  base: 0,
+  peak: 0.14,
+  roughness: 0.05,
+  profile: 'linear',
+  color: 0xffffff,
+  envMapIntensity: 1.6,
+  minDrawStep: 0.015,
+};
+
 export const SIGIL_DEFAULTS = {
   interaction: {
-    minDrawStep: 0.012,
+    minDrawStep: DRAW_DEMO_DEFAULTS.minDrawStep,
   },
   stroke: {
-    symmetry: 6,
-    mirror: false,
+    symmetry: DRAW_DEMO_DEFAULTS.symmetry,
+    mirror: DRAW_DEMO_DEFAULTS.mirror,
     phase: 0,
-    center: [0, 0],
-    thickness: 0.14,
+    center: DRAW_DEMO_DEFAULTS.center,
+    thickness: DRAW_DEMO_DEFAULTS.thickness,
     guides: true,
   },
   field: {
-    backend: 'hybrid',
-    resolution: REALTIME_MERGE_RESOLUTION,
-    smooth: 3,
-    taper: 1,
-    taperPower: 1.05,
-    edgeFalloffNorm: 0.5,
-    base: 0,
+    backend: DRAW_DEMO_DEFAULTS.backend,
+    resolution: DRAW_DEMO_DEFAULTS.resolution,
+    smooth: DRAW_DEMO_DEFAULTS.smooth,
+    taper: DRAW_DEMO_DEFAULTS.taper,
+    taperPower: DRAW_DEMO_DEFAULTS.taperPower,
+    edgeFalloffNorm: DRAW_DEMO_DEFAULTS.edgeFalloffNorm,
+    base: DRAW_DEMO_DEFAULTS.base,
     resampleFactor: 0.12,
     gridBufferFactor: 1.5,
-    depthMode: 'boundary',
+    depthMode: DRAW_DEMO_DEFAULTS.depthMode,
     mergeBlendScale: 8,
     depthBlendScale: 6,
   },
   melt: {
-    sigilize: 36,
-    sigilizeWeight: 0.75,
-    heightSmooth: 2,
+    sigilize: DRAW_DEMO_DEFAULTS.sigilize,
+    sigilizeWeight: DRAW_DEMO_DEFAULTS.sigilizeWeight,
+    heightSmooth: DRAW_DEMO_DEFAULTS.heightSmooth,
     heightSmoothWeight: 0.5,
   },
   preview: {
@@ -50,12 +75,12 @@ export const SIGIL_DEFAULTS = {
     spread: 0,
   },
   surface: {
-    peakHeight: 0.14,
-    roughness: 0.05,
+    peakHeight: DRAW_DEMO_DEFAULTS.peak,
+    roughness: DRAW_DEMO_DEFAULTS.roughness,
     metalness: 1,
-    profile: 'linear',
-    color: 0xffffff,
-    envMapIntensity: 1.6,
+    profile: DRAW_DEMO_DEFAULTS.profile,
+    color: DRAW_DEMO_DEFAULTS.color,
+    envMapIntensity: DRAW_DEMO_DEFAULTS.envMapIntensity,
   },
 };
 
@@ -105,6 +130,11 @@ export function createSigilState(overrides = {}) {
     color: overrides.color ?? d.surface.color,
     envMapIntensity: overrides.envMapIntensity ?? d.surface.envMapIntensity,
   };
+}
+
+/** Alias for {@link createSigilState} — former draw.html defaults. */
+export function createDrawDemoState(overrides = {}) {
+  return createSigilState(overrides);
 }
 
 function thicknessOf(state) {
