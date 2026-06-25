@@ -441,13 +441,16 @@ ui.clear.addEventListener('click', () => { if (drawing) finishStroke(); strokes.
 
 // ------------------------------------------------------------- seed glyph ----
 (function seed() {
-  const arc = [];
-  for (let i = 0; i <= 22; i++) {
-    const t = i / 22;
-    const a = -Math.PI * 0.62 + t * Math.PI * 1.24;
-    arc.push([Math.cos(a) * 0.7, Math.sin(a) * 0.7 - 0.08]);
+  // An open hook/talon: spirals out from near the center and tapers to a point.
+  // With symmetry 6 + mirror the taper makes a spiky cybersigil star.
+  const talon = [];
+  for (let i = 0; i <= 34; i++) {
+    const t = i / 34;
+    const a = -0.5 + t * Math.PI * 0.78;          // sweep ~140°
+    const r = 0.16 + t * t * 0.92;                // accelerate outward
+    talon.push([Math.cos(a) * r, Math.sin(a) * r - 0.05]);
   }
-  strokes.push(arc);
+  strokes.push(talon);
   syncSegments();
 })();
 
