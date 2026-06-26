@@ -1,6 +1,5 @@
 import {
   createChromeMaterial,
-  createSigilState,
   createDrawDemoState,
   shapeOptionsFromState,
   chromeOptionsFromState,
@@ -79,7 +78,7 @@ function compactControlSpecs(specs, ignored) {
   return out;
 }
 
-export function mount(ctx, { panelRoot, infoRoot }) {
+export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(), strokes = [] }) {
   const { THREE, renderer, scene, camera, controls } = ctx;
   const abort = new AbortController();
   const { signal } = abort;
@@ -93,8 +92,6 @@ export function mount(ctx, { panelRoot, infoRoot }) {
   controls.target.set(0, 0, 0);
   controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: null };
   renderer.domElement.style.cursor = 'crosshair';
-
-  const state = createSigilState();
 
   panelRoot.innerHTML = `
     <div class="mode-head">
@@ -157,7 +154,6 @@ export function mount(ctx, { panelRoot, infoRoot }) {
   const guideMat = new THREE.LineBasicMaterial({ color: 0x6fd0ff, transparent: true, opacity: 0.7, depthTest: false });
   let currentGuide = null;
 
-  const strokes = [];
   let current = [];
   let rebuildVersion = 0;
   let rebuildTimer = 0;
@@ -516,6 +512,7 @@ export function mount(ctx, { panelRoot, infoRoot }) {
   renderer.domElement.addEventListener('pointercancel', finishStroke, { signal });
 
   refreshGuides();
+  if (strokes.length > 0) rebuild();
 
   let frames = 0;
   let fpsClock = 0;

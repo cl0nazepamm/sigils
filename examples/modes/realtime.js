@@ -2,7 +2,6 @@ import {
   buildSparseCurveGeometry,
   buildSigilGeometryAsync,
   createChromeMaterial,
-  createSigilState,
   createDrawDemoState,
   shapeOptionsFromState,
   sparsePreviewOptionsFromState,
@@ -19,7 +18,7 @@ export const meta = {
   hint: 'Draw chrome sigils · sparse preview while dragging, SDF merge on release',
 };
 
-export function mount(ctx, { panelRoot, infoRoot }) {
+export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(), strokes = [] }) {
   const { THREE, renderer, scene, camera, controls } = ctx;
   const abort = new AbortController();
   const { signal } = abort;
@@ -30,8 +29,6 @@ export function mount(ctx, { panelRoot, infoRoot }) {
   controls.target.set(0, 0, 0);
   controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: null };
   renderer.domElement.style.cursor = 'crosshair';
-
-  const state = createSigilState();
 
   panelRoot.innerHTML = `
     <div class="mode-head">
@@ -78,7 +75,6 @@ export function mount(ctx, { panelRoot, infoRoot }) {
   scene.add(guideGroup);
   const guideMat = new THREE.LineBasicMaterial({ color: 0x6fd0ff, transparent: true, opacity: 0.7, depthTest: false });
 
-  const strokes = [];
   let current = [];
   let rebuildVersion = 0;
   let rebuildTimer = 0;
@@ -344,6 +340,7 @@ export function mount(ctx, { panelRoot, infoRoot }) {
   renderer.domElement.addEventListener('pointercancel', finishStroke, { signal });
 
   refreshGuides();
+  if (strokes.length > 0) rebuild();
 
   let frames = 0;
   let fpsClock = 0;

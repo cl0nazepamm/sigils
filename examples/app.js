@@ -1,6 +1,7 @@
 import { createDemoContext } from './shared/demoContext.js';
 import * as realtime from './modes/realtime.js';
 import * as meshless from './modes/meshless.js';
+import { createSigilState } from '../src/index.js';
 
 // Registry of example modes. realtime stays the default (index 0).
 const MODES = [realtime, meshless];
@@ -24,6 +25,8 @@ const select = switchWrap.querySelector('#mode-select');
 for (const mode of MODES) select.add(new Option(mode.meta.label, mode.meta.id));
 
 const ctx = await createDemoContext();
+const sharedState = createSigilState();
+const sharedStrokes = [];
 
 let activeUnmount = null;
 let activeId = null;
@@ -41,7 +44,7 @@ function switchTo(id) {
   activeUnmount = null;
   activeId = null;
   try {
-    activeUnmount = mode.mount(ctx, { panelRoot, infoRoot });
+    activeUnmount = mode.mount(ctx, { panelRoot, infoRoot, state: sharedState, strokes: sharedStrokes });
     activeId = mode.meta.id;
     select.value = activeId;
   } catch (error) {
