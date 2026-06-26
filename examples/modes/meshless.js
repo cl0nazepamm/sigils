@@ -1,7 +1,6 @@
 import {
   createChromeMaterial,
   createDrawDemoState,
-  shapeOptionsFromState,
   chromeOptionsFromState,
   updateChromeMaterial,
 } from '../../src/index.js';
@@ -16,6 +15,13 @@ import {
 import { createDrawPlane } from '../shared/demoContext.js';
 import { mountControlPanel, syncControlPanelToState } from '../shared/controlPanel.js';
 import { DEMO_CONTROL_SPECS } from '../shared/demoControlSpecs.js';
+import {
+  activeBuildPaths,
+  buildOptionsForSession,
+  isDrawSettingKey,
+  makeStrokeRecord,
+  strokePoints,
+} from '../shared/strokeSession.js';
 
 export const meta = {
   id: 'meshless',
@@ -126,6 +132,10 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     onChange: (key) => {
       if (key === 'guides') refreshGuides();
       refreshPreview();
+      if (isDrawSettingKey(key)) {
+        if (drawing) scheduleLiveRebuild();
+        return;
+      }
       scheduleRebuild();
     },
     onLive: () => {
@@ -187,7 +197,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
   }
 
   function allStrokes() {
-    return current.length >= 2 ? [...strokes, current] : strokes;
+    return activeBuildPaths(strokes, current, state);
   }
 
   function scheduleRebuild(delay = 120) {
@@ -200,8 +210,9 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     guideGroup.visible = state.guides;
     if (!guideGroup.visible) return;
     for (const stroke of strokes) {
-      if (stroke.length < 2) continue;
-      guideGroup.add(createGuideLine(stroke));
+      const points = strokePoints(stroke);
+      if (points.length < 2) continue;
+      guideGroup.add(createGuideLine(points));
     }
     refreshCurrentGuide();
   }
@@ -313,7 +324,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
       }
 
       const version = ++rebuildVersion;
-      const buildOpts = shapeOptionsFromState(state);
+      const buildOpts = buildOptionsForSession(state);
       field = await buildResidentField(renderer, active, buildOpts, pool);
 
       // Discard results that an unmount or a newer rebuild has superseded.
@@ -397,7 +408,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     drawing = false;
     activePointer = null;
     if (current.length >= 2) {
-      strokes.push(current);
+      strokes.push(makeStrokeRecord(current, state));
       holdPreviewUntilRebuild = true;
     } else {
       refreshPreview();

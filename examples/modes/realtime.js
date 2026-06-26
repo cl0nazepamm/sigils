@@ -3,7 +3,6 @@ import {
   buildSigilGeometryAsync,
   createChromeMaterial,
   createDrawDemoState,
-  shapeOptionsFromState,
   sparsePreviewOptionsFromState,
   chromeOptionsFromState,
   updateChromeMaterial,
@@ -11,6 +10,13 @@ import {
 import { createDrawPlane } from '../shared/demoContext.js';
 import { mountControlPanel, syncControlPanelToState } from '../shared/controlPanel.js';
 import { DEMO_CONTROL_SPECS } from '../shared/demoControlSpecs.js';
+import {
+  buildOptionsForSession,
+  committedBuildPaths,
+  isDrawSettingKey,
+  makeStrokeRecord,
+  strokePoints,
+} from '../shared/strokeSession.js';
 
 export const meta = {
   id: 'realtime',
@@ -53,6 +59,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     onChange: (key) => {
       if (key === 'guides') refreshGuides();
       refreshPreview();
+      if (isDrawSettingKey(key)) return;
       scheduleRebuild();
     },
     onLive: () => updateChromeMaterial(sigilMaterial, chromeOptionsFromState(state)),
@@ -107,7 +114,9 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
   }
 
   function allStrokes() {
-    return current.length >= 2 ? [...strokes, current] : strokes;
+    const paths = strokes.map(strokePoints);
+    if (current.length >= 2) paths.push(current);
+    return paths;
   }
 
   function scheduleRebuild(delay = 120) {
@@ -181,8 +190,9 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
       }
 
       const version = ++rebuildVersion;
-      const geometry = await buildSigilGeometryAsync(strokes, {
-        ...shapeOptionsFromState(state),
+      const paths = committedBuildPaths(strokes);
+      const geometry = await buildSigilGeometryAsync(paths, {
+        ...buildOptionsForSession(state),
         renderer,
         onGpuFallback: (error) => console.warn('sigils: hybrid field fallback', error),
       });
@@ -229,7 +239,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     drawing = false;
     activePointer = null;
     if (current.length >= 2) {
-      strokes.push(current);
+      strokes.push(makeStrokeRecord(current, state));
       holdPreviewUntilRebuild = true;
     } else {
       refreshPreview();
@@ -322,7 +332,11 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     if (event.button !== 0) return;
     drawing = true;
     activePointer = event.pointerId;
-    renderer.domElement.setPointerCapture(event.pointerId);
+    try {
+      renderer.domElement.setPointerCapture(event.pointerId);
+    } catch {
+      // Some event sources do not create a capturable pointer.
+    }
     current = [];
     pushPoint(planePoint(event));
     refreshGuides();
@@ -331,7 +345,9 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
 
   renderer.domElement.addEventListener('pointermove', (event) => {
     if (!drawing || event.pointerId !== activePointer) return;
+    const before = current.length;
     pushPoint(planePoint(event));
+    if (current.length === before) return;
     refreshGuides();
     refreshPreview();
   }, { signal });
