@@ -15,6 +15,7 @@ import {
 import { createDrawPlane } from '../shared/demoContext.js';
 import { mountControlPanel, syncControlPanelToState } from '../shared/controlPanel.js';
 import { DEMO_CONTROL_SPECS } from '../shared/demoControlSpecs.js';
+import { bindGlbExportButton } from '../shared/glbExport.js';
 import {
   activeBuildPaths,
   buildOptionsForSession,
@@ -109,6 +110,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
       <button id="defaults" type="button">Draw defaults</button>
       <button id="undo" type="button">Undo</button>
       <button id="clear" type="button">Clear</button>
+      <button id="export-glb" type="button">GLB</button>
     </div>
     <div class="note">Left-drag to draw. Right-drag orbits, scroll zooms. The committed sigil is raymarched — no mesh.</div>
   `;
@@ -184,7 +186,10 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     defaults: panelRoot.querySelector('#defaults'),
     undo: panelRoot.querySelector('#undo'),
     clear: panelRoot.querySelector('#clear'),
+    exportGlb: panelRoot.querySelector('#export-glb'),
   };
+
+  bindGlbExportButton(ui.exportGlb, { strokes, state, renderer, signal });
 
   function applyDrawDefaults() {
     Object.assign(state, createDrawDemoState());

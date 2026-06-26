@@ -274,6 +274,7 @@ function applyBoundaryDepth(region, falloff, heightSmoothPasses, field, threshol
   const width = Math.max(1e-6, falloff);
   const bfield = makeBoundaryField(positions, boundary, width);
   const depthBlend = fieldSmooth > 0 ? Math.min(1, fieldSmooth / depthBlendScale) : 0;
+  const pinned = boundaryVertexMask(boundary, count);
 
   for (let i = 0; i < count; i++) {
     const x = positions[i * 3];
@@ -285,9 +286,10 @@ function applyBoundaryDepth(region, falloff, heightSmoothPasses, field, threshol
     }
     depth[i] = d;
   }
+  pinBoundaryDepth(depth, pinned);
 
   if (heightSmoothPasses > 0) {
-    smoothVertexScalar(depth, buildAdjacency(count, indices), heightSmoothPasses, clamp01(heightSmoothWeight ?? 0.5));
+    smoothVertexScalar(depth, buildAdjacency(count, indices), heightSmoothPasses, clamp01(heightSmoothWeight ?? 0.5), pinned);
   }
 
   computeScalarGradient(positions, indices, depth, grad, count);
@@ -317,11 +319,15 @@ function buildAdjacency(count, indices) {
   return sets.map((s) => Array.from(s));
 }
 
-function smoothVertexScalar(values, adjacency, iterations, weight) {
+function smoothVertexScalar(values, adjacency, iterations, weight, pinned = null) {
   const w = clamp01(weight);
   const tmp = new Float32Array(values.length);
   for (let pass = 0; pass < iterations; pass++) {
     for (let i = 0; i < values.length; i++) {
+      if (pinned?.[i]) {
+        tmp[i] = 0;
+        continue;
+      }
       const neighbors = adjacency[i];
       if (!neighbors || neighbors.length === 0) {
         tmp[i] = values[i];
@@ -333,6 +339,21 @@ function smoothVertexScalar(values, adjacency, iterations, weight) {
       tmp[i] = values[i] + (avg - values[i]) * w;
     }
     values.set(tmp);
+  }
+}
+
+function boundaryVertexMask(boundary, count) {
+  const mask = new Uint8Array(count);
+  for (const [a, b] of boundary) {
+    mask[a] = 1;
+    mask[b] = 1;
+  }
+  return mask;
+}
+
+function pinBoundaryDepth(depth, pinned) {
+  for (let i = 0; i < pinned.length; i++) {
+    if (pinned[i]) depth[i] = 0;
   }
 }
 
