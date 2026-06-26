@@ -7,7 +7,7 @@ export const REALTIME_MERGE_RESOLUTION = 280;
 
 /** Demo defaults matching the former draw.html commit path. */
 export const DRAW_DEMO_DEFAULTS = {
-  symmetry: 6,
+  symmetry: 1,
   mirror: false,
   thickness: 0.14,
   center: [0, 0],
@@ -40,7 +40,8 @@ export const SIGIL_DEFAULTS = {
     phase: 0,
     center: DRAW_DEMO_DEFAULTS.center,
     thickness: DRAW_DEMO_DEFAULTS.thickness,
-    guides: true,
+    guides: false,
+    previewStripOnly: false,
   },
   field: {
     backend: DRAW_DEMO_DEFAULTS.backend,
@@ -95,6 +96,7 @@ export function createSigilState(overrides = {}) {
     center: overrides.center ?? d.stroke.center,
     thickness: overrides.thickness ?? d.stroke.thickness,
     guides: overrides.guides ?? d.stroke.guides,
+    previewStripOnly: overrides.previewStripOnly ?? d.stroke.previewStripOnly,
     backend: overrides.backend ?? d.field.backend,
     resolution: overrides.resolution ?? overrides.resolutionQuality ?? overrides.resolutionFast ?? d.field.resolution,
     smooth: overrides.smooth ?? d.field.smooth,

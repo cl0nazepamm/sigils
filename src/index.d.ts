@@ -158,6 +158,7 @@ export interface SigilState {
   center: Pt2;
   thickness: number;
   guides: boolean;
+  previewStripOnly: boolean;
   backend: 'hybrid' | 'cpu';
   resolution: number;
   smooth: number;
@@ -203,6 +204,7 @@ export const SIGIL_DEFAULTS: {
     center: Pt2;
     thickness: number;
     guides: boolean;
+    previewStripOnly: boolean;
   };
   field: Record<string, number | string>;
   melt: Record<string, number>;
@@ -303,7 +305,7 @@ export function spirograph(opts?: {
 export function createChromeMaterial(opts?: ChromeOptions): ChromeNodeMaterial;
 export function updateChromeMaterial(
   material: ChromeNodeMaterial,
-  opts?: { peakHeight?: number; roughness?: number },
+  opts?: { peakHeight?: number; roughness?: number; envMapIntensity?: number },
 ): void;
 
 export function radialSymmetry(

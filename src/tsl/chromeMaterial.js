@@ -87,10 +87,14 @@ export function createChromeMaterial(opts = {}) {
   return material;
 }
 
-/** Convenience setter for the live uniforms. */
-export function updateChromeMaterial(material, { peakHeight, roughness } = {}) {
+/** Convenience setter for live material controls. */
+export function updateChromeMaterial(material, { peakHeight, roughness, envMapIntensity } = {}) {
   const u = material.sigilUniforms;
   if (!u) return;
   if (peakHeight !== undefined) u.peakHeight.value = peakHeight;
   if (roughness !== undefined) u.roughness.value = roughness;
+  if (envMapIntensity !== undefined) {
+    material.envMapIntensity = envMapIntensity;
+    material.needsUpdate = true;
+  }
 }

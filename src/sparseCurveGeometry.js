@@ -326,7 +326,7 @@ function transformPoint(p, sectorIndex, mirrored, opts) {
   const center = opts.center ?? [0, 0];
   let x = p[0] - center[0];
   let y = p[1] - center[1];
-  if (mirrored) y = -y;
+  if (mirrored) x = -x;
   const a = (opts.phase ?? 0) + (TAU / Math.max(1, Math.floor(opts.symmetry ?? 1))) * sectorIndex;
   const c = Math.cos(a);
   const s = Math.sin(a);
