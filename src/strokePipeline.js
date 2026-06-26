@@ -1,5 +1,5 @@
 /**
- * Stroke preparation helpers matching the curve-field pipeline:
+ * Stroke preparation helpers for distance-field rasterization:
  * flatten → stacked rotational copies → resample → optional reference cull → symmetry.
  */
 

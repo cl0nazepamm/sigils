@@ -9,7 +9,8 @@
  *
  * Standalone StorageBufferAttributes are not auto-freed by three's WebGPU
  * backend, so buffers live in a GROW-ONLY pool reused across rebuilds: GPU
- * memory is bounded by the largest field drawn, not by the number of rebuilds.
+ * memory is bounded by the requested field resolution, not by the number of
+ * rebuilds.
  * three@0.180 has no BufferAttribute.dispose(), so dispose() nulls the backing
  * typed arrays to make the buffers GC-eligible promptly (see freeBuf below).
  *
@@ -37,7 +38,25 @@ function freeBuf(b) {
     b[key] = null;
   }
   b.capacity = 0;
-  b.segFloats = 0;
+  b.segCapacity = 0;
+}
+
+function alignTo(value, step) {
+  return Math.ceil(value / step) * step;
+}
+
+function growSegmentCapacity(required, current = 0) {
+  let cap = Math.max(current, 64);
+  while (cap < required) cap *= 2;
+  return alignTo(cap, 8);
+}
+
+function fieldCapacityForGrid(grid, resolution, total) {
+  // FieldGrid's largest dimension is resolution + padding cells. Allocating the
+  // square envelope up front keeps the raw/smooth storage attributes stable as
+  // bounds/aspect change while drawing at the same resolution.
+  const maxCells = Math.max(grid.width, grid.height, Math.ceil(resolution) + 3);
+  return Math.max(total, maxCells * maxCells);
 }
 
 import { prepareStrokes } from './strokePipeline.js';
@@ -54,7 +73,7 @@ import { FieldGrid, rasterizeField, blurFieldPass } from './internal/gpuFieldCor
  * @property {number} depthBlend          - field↔boundary depth blend
  * @property {StorageBufferAttribute} rawAttr    - sharp (dist, weight) per cell
  * @property {StorageBufferAttribute} smoothAttr - smoothed (dist, weight); === rawAttr when smooth=0
- * @property {boolean} reused             - true when the pool buffers were reused in place
+ * @property {boolean} reused             - true when the material-bound field buffers were reused in place
  * @property {object} _buf                - internal pool record (pass back as `pool`)
  * @property {() => void} dispose
  */
@@ -88,23 +107,35 @@ export async function buildResidentField(renderer, strokes, opts = {}, pool = nu
   const total = grid.width * grid.height;
   const segFloats = grid.segmentData.length;
   const prev = pool?._buf ?? null;
-  const reuse = !!(prev && prev.capacity >= total && prev.segFloats >= segFloats);
+  const reuse = !!(prev && prev.capacity >= total);
 
   let b;
   if (reuse) {
     b = prev;
-    // Segment buffer is compute-only (never bound to the material): re-upload.
+    // Segment data is compute-only (never bound to the raymarch material), so
+    // it can grow independently without forcing raw/smooth field storage or the
+    // material node graph to be recreated.
+    if (!b.segAttr || b.segCapacity < segFloats) {
+      const oldSeg = b.segAttr;
+      if (oldSeg) oldSeg.array = null;
+      b.segCapacity = growSegmentCapacity(segFloats, b.segCapacity);
+      b.segAttr = new StorageBufferAttribute(new Float32Array(b.segCapacity), 4);
+    }
     b.segAttr.array.set(grid.segmentData);
     b.segAttr.needsUpdate = true;
   } else {
+    const capacity = fieldCapacityForGrid(grid, resolution, total);
+    const segCapacity = growSegmentCapacity(segFloats);
     b = {
-      capacity: total,
-      segFloats,
-      segAttr: new StorageBufferAttribute(Float32Array.from(grid.segmentData), 4),
-      rawAttr: new StorageBufferAttribute(new Float32Array(total * 2), 2),
-      smoothA: new StorageBufferAttribute(new Float32Array(total * 2), 2),
-      smoothB: new StorageBufferAttribute(new Float32Array(total * 2), 2),
+      capacity,
+      segCapacity,
+      segAttr: new StorageBufferAttribute(new Float32Array(segCapacity), 4),
+      rawAttr: new StorageBufferAttribute(new Float32Array(capacity * 2), 2),
+      smoothA: new StorageBufferAttribute(new Float32Array(capacity * 2), 2),
+      smoothB: new StorageBufferAttribute(new Float32Array(capacity * 2), 2),
     };
+    b.segAttr.array.set(grid.segmentData);
+    b.segAttr.needsUpdate = true;
   }
 
   // Rasterize the sharp field into rawAttr (kept for the silhouette merge).

@@ -20,6 +20,7 @@ import {
   PEAK_MAX,
   RAYMARCH_STEPS,
 } from '../src/tsl/raymarchSigilMaterial.js';
+import { buildResidentField } from '../src/meshlessField.js';
 import { prepareStrokes } from '../src/strokePipeline.js';
 
 function fakeField() {
@@ -93,6 +94,35 @@ for (const profile of ['linear', 'round']) {
     gridBufferFactor: 3,
   });
   assert.strictEqual(explicit.fieldOpts.margin, 0.42, 'gridBuffer overrides factor');
+}
+
+// Segment uploads can grow every drag tick; they must not force the material-bound
+// raw/smoothed field storage to be recreated.
+{
+  const renderer = { computeAsync: async () => {} };
+  const opts = {
+    thickness: 0.2,
+    resolution: 16,
+    fieldResolution: 16,
+    smooth: 0,
+    symmetry: 1,
+    mirror: false,
+    resample: 0.1,
+  };
+  const small = await buildResidentField(renderer, [[0, 0], [1, 0]], opts);
+  assert.ok(small && !small.reused, 'first field allocates');
+
+  const raw = small.rawAttr;
+  const smooth = small.smoothAttr;
+  const seg = small._buf.segAttr;
+  const longStroke = Array.from({ length: 160 }, (_, i) => [i / 159, Math.sin(i) * 0.02]);
+  const grownSegments = await buildResidentField(renderer, longStroke, opts, small);
+  assert.ok(grownSegments.reused, 'field storage reused when only segment upload grows');
+  assert.strictEqual(grownSegments.rawAttr, raw, 'raw storage stays bound');
+  assert.strictEqual(grownSegments.smoothAttr, smooth, 'smooth storage stays bound');
+  assert.notStrictEqual(grownSegments._buf.segAttr, seg, 'segment upload buffer can grow independently');
+
+  grownSegments.dispose(true);
 }
 
 console.log(`meshless smoke OK · PEAK_MAX ${PEAK_MAX} · ${RAYMARCH_STEPS} steps`);

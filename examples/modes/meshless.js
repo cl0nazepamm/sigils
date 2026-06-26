@@ -155,6 +155,7 @@ export function mount(ctx, { panelRoot, infoRoot }) {
   guideGroup.renderOrder = 2;
   scene.add(guideGroup);
   const guideMat = new THREE.LineBasicMaterial({ color: 0x6fd0ff, transparent: true, opacity: 0.7, depthTest: false });
+  let currentGuide = null;
 
   const strokes = [];
   let current = [];
@@ -199,14 +200,53 @@ export function mount(ctx, { panelRoot, infoRoot }) {
   }
 
   function refreshGuides() {
-    guideGroup.clear();
+    clearGuides();
     guideGroup.visible = state.guides;
     if (!guideGroup.visible) return;
-    for (const stroke of allStrokes()) {
+    for (const stroke of strokes) {
       if (stroke.length < 2) continue;
-      const pts = stroke.map(([x, y]) => new THREE.Vector3(x, y, 0.012));
-      guideGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), guideMat));
+      guideGroup.add(createGuideLine(stroke));
     }
+    refreshCurrentGuide();
+  }
+
+  function createGuideLine(stroke) {
+    const pts = stroke.map(([x, y]) => new THREE.Vector3(x, y, 0.012));
+    return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), guideMat);
+  }
+
+  function disposeGuideLine(line) {
+    line.geometry?.dispose?.();
+  }
+
+  function clearGuides() {
+    for (const child of guideGroup.children) disposeGuideLine(child);
+    guideGroup.clear();
+    currentGuide = null;
+  }
+
+  function clearCurrentGuide() {
+    if (!currentGuide) return;
+    guideGroup.remove(currentGuide);
+    disposeGuideLine(currentGuide);
+    currentGuide = null;
+  }
+
+  function refreshCurrentGuide() {
+    guideGroup.visible = state.guides;
+    if (!guideGroup.visible || current.length < 2) {
+      clearCurrentGuide();
+      return;
+    }
+
+    const next = createGuideLine(current);
+    if (currentGuide) {
+      const old = currentGuide;
+      guideGroup.remove(old);
+      disposeGuideLine(old);
+    }
+    currentGuide = next;
+    guideGroup.add(currentGuide);
   }
 
   function clearPreviewMesh() {
@@ -461,14 +501,14 @@ export function mount(ctx, { panelRoot, infoRoot }) {
     }
     current = [];
     pushPoint(planePoint(event));
-    refreshGuides();
+    refreshCurrentGuide();
     refreshPreview();
   }, { signal });
 
   renderer.domElement.addEventListener('pointermove', (event) => {
     if (!drawing || event.pointerId !== activePointer) return;
     if (!pushPoint(planePoint(event))) return;
-    refreshGuides();
+    refreshCurrentGuide();
     scheduleLiveRebuild(); // raymarch the in-progress stroke live as it's drawn
   }, { signal });
 
@@ -509,6 +549,7 @@ export function mount(ctx, { panelRoot, infoRoot }) {
     abort.abort();
     clearTimeout(rebuildTimer);
     clearTimeout(liveRebuildTimer);
+    clearGuides();
     guideMat.dispose();
     previewMaterial.dispose();
     if (sigilMaterial) sigilMaterial.dispose();

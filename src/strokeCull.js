@@ -1,9 +1,8 @@
 /**
  * Drop stroke vertices that fail a proximity gate.
  *
- * Matches the curve-native cull pass used before curve-to-mesh in stacked
- * shape pipelines: keep points whose distance to a reference target stays
- * above a cutoff.
+ * Matches the curve-native cull pass used before curve-to-mesh: keep points
+ * whose distance to a reference target stays above a cutoff.
  */
 
 import { toPathSet } from './internal/paths.js';

@@ -2,8 +2,7 @@
  * Radial symmetry ("spiro") generator.
  *
  * Given a set of strokes, produce N rotated copies around a center point so the
- * result has N-fold rotational symmetry. This is what turns a single scribble
- * into a radial form.
+ * result has N-fold rotational symmetry.
  */
 
 import { toPathSet, centroidOf } from './internal/paths.js';

@@ -1,6 +1,6 @@
 # Shape pipeline reference
 
-How the **sigils** CPU path maps to the curve-field pipeline.
+How the **sigils** CPU path maps stroke controls to generated geometry.
 
 ## Stage mapping
 
