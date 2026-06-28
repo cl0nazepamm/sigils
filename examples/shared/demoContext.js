@@ -6,7 +6,8 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
  * Shared WebGPU renderer + scene shell for the unified sigils demo.
  */
 export async function createDemoContext() {
-  const renderer = new THREE.WebGPURenderer({ antialias: true });
+  const renderer = new THREE.WebGPURenderer({ antialias: true, alpha: true });
+  renderer.setClearAlpha?.(0);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -17,7 +18,7 @@ export async function createDemoContext() {
   await renderer.init();
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0b0b0d);
+  scene.background = null;
 
   const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 100);
   camera.up.set(0, 1, 0);

@@ -12,6 +12,7 @@ import { mountControlPanel, syncControlPanelToState } from '../shared/controlPan
 import { DEMO_CONTROL_SPECS } from '../shared/demoControlSpecs.js';
 import { bindGlbExportButton } from '../shared/glbExport.js';
 import {
+  activeBuildPaths,
   buildOptionsForSession,
   committedBuildPaths,
   isDrawSettingKey,
@@ -22,7 +23,6 @@ import {
 export const meta = {
   id: 'realtime',
   label: 'Sigils',
-  hint: 'Draw chrome sigils · sparse preview while dragging, SDF merge on release',
 };
 
 export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(), strokes = [] }) {
@@ -40,7 +40,6 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
   panelRoot.innerHTML = `
     <div class="mode-head">
       <h2>Sigils</h2>
-      <p class="sub">${meta.hint}</p>
     </div>
     <div id="controls"></div>
     <div class="buttons">
@@ -49,22 +48,40 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
       <button id="clear" type="button">Clear</button>
       <button id="export-glb" type="button">GLB</button>
     </div>
-    <div class="note">Left-drag to draw. Right-drag orbits, scroll zooms.</div>
   `;
   infoRoot.innerHTML = `<b>sigils</b><br /><span id="stats">—</span>`;
 
   const statsEl = infoRoot.querySelector('#stats');
   const controlsRoot = panelRoot.querySelector('#controls');
-  const sigilMaterial = createChromeMaterial(chromeOptionsFromState(state));
+  let sigilMaterial = createChromeMaterial(chromeOptionsFromState(state));
+  const defaultState = createDrawDemoState();
 
   const controlUi = mountControlPanel(controlsRoot, DEMO_CONTROL_SPECS, state, {
     onChange: (key) => {
       if (key === 'guides') refreshGuides();
+      if (key === 'profile') replaceChromeMaterial();
       refreshPreview();
+      if (key === 'previewStripOnly') {
+        rebuildVersion++;
+        clearTimeout(rebuildTimer);
+        if (state.previewStripOnly) {
+          clearCommittedMesh();
+          holdPreviewUntilRebuild = false;
+          blendBackend = 'strip';
+        } else {
+          scheduleRebuild(0);
+        }
+        return;
+      }
+      if (state.previewStripOnly) return;
       if (isDrawSettingKey(key)) return;
       scheduleRebuild();
     },
-    onLive: () => updateChromeMaterial(sigilMaterial, chromeOptionsFromState(state)),
+    onLive: (key) => {
+      updateChromeMaterial(sigilMaterial, chromeOptionsFromState(state));
+      if (state.previewStripOnly && key === 'peak') refreshPreview();
+    },
+    defaults: defaultState,
     signal,
   });
 
@@ -109,10 +126,18 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
 
   bindGlbExportButton(ui.exportGlb, { strokes, state, renderer, signal });
 
+  function replaceChromeMaterial() {
+    const previous = sigilMaterial;
+    sigilMaterial = createChromeMaterial(chromeOptionsFromState(state));
+    sigilMesh.material = sigilMaterial;
+    previewMesh.material = sigilMaterial;
+    previous.dispose();
+  }
+
   function applyDrawDefaults() {
     Object.assign(state, createDrawDemoState());
     syncControlPanelToState(controlUi, state, panelRoot);
-    updateChromeMaterial(sigilMaterial, chromeOptionsFromState(state));
+    replaceChromeMaterial();
     refreshGuides();
     refreshPreview();
     scheduleRebuild(0);
@@ -147,6 +172,14 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     old.dispose();
   }
 
+  function clearCommittedMesh() {
+    sigilMesh.visible = false;
+    const old = sigilMesh.geometry;
+    sigilMesh.geometry = new THREE.BufferGeometry();
+    old.dispose();
+    updateVertexCount();
+  }
+
   function updateVertexCount() {
     const committed = sigilMesh.geometry.getAttribute('position')?.count ?? 0;
     const preview = previewMesh.visible
@@ -156,6 +189,28 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
   }
 
   function refreshPreview() {
+    if (state.previewStripOnly) {
+      const paths = activeBuildPaths(strokes, current, state);
+      if (paths.length === 0) {
+        clearPreviewMesh();
+        updateVertexCount();
+        return;
+      }
+
+      const geometry = buildSparseCurveGeometry(paths, {
+        ...sparsePreviewOptionsFromState(state),
+        symmetry: 1,
+        mirror: false,
+        phase: 0,
+      });
+      const old = previewMesh.geometry;
+      previewMesh.geometry = geometry;
+      old.dispose();
+      previewMesh.visible = (geometry.getAttribute('position')?.count ?? 0) > 0;
+      updateVertexCount();
+      return;
+    }
+
     if (holdPreviewUntilRebuild && !drawing) {
       updateVertexCount();
       return;
@@ -182,6 +237,13 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
   async function rebuild() {
     try {
       lastError = '';
+      if (state.previewStripOnly) {
+        clearCommittedMesh();
+        holdPreviewUntilRebuild = false;
+        blendBackend = 'strip';
+        refreshPreview();
+        return;
+      }
       if (strokes.length === 0) {
         const old = sigilMesh.geometry;
         sigilMesh.geometry = new THREE.BufferGeometry();
@@ -202,7 +264,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
         onGpuFallback: (error) => console.warn('sigils: hybrid field fallback', error),
       });
 
-      if (version !== rebuildVersion) {
+      if (version !== rebuildVersion || state.previewStripOnly) {
         geometry.dispose();
         return;
       }
@@ -245,13 +307,14 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     activePointer = null;
     if (current.length >= 2) {
       strokes.push(makeStrokeRecord(current, state));
-      holdPreviewUntilRebuild = true;
+      holdPreviewUntilRebuild = !state.previewStripOnly;
     } else {
       refreshPreview();
     }
     current = [];
     refreshGuides();
-    rebuild();
+    if (state.previewStripOnly) refreshPreview();
+    else rebuild();
   }
 
   function rotateView(dx, dy) {
@@ -315,7 +378,8 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     holdPreviewUntilRebuild = false;
     clearPreviewMesh();
     refreshGuides();
-    rebuild();
+    if (state.previewStripOnly) refreshPreview();
+    else rebuild();
   }, { signal });
   ui.clear.addEventListener('click', () => {
     if (drawing) finishStroke();
@@ -324,7 +388,8 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     holdPreviewUntilRebuild = false;
     clearPreviewMesh();
     refreshGuides();
-    rebuild();
+    if (state.previewStripOnly) refreshPreview();
+    else rebuild();
   }, { signal });
 
   renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault(), { signal });

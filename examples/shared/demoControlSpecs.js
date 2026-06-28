@@ -5,7 +5,8 @@ export const DEMO_CONTROL_SPECS = [
   { key: 'symmetry', label: 'Symmetry', type: 'range', min: 1, max: 12, step: 1, int: true },
   { key: 'mirror', label: 'Mirror', type: 'check' },
   { key: 'thickness', label: 'Width', type: 'range', min: 0.04, max: 0.32, step: 0.005 },
-  { key: 'guides', label: 'Guides', type: 'check' },
+  { key: 'guides', label: 'Curves', type: 'check' },
+  { key: 'previewStripOnly', label: 'Preview strip', type: 'check' },
 
   { type: 'section', label: 'Field' },
   { key: 'backend', label: 'Backend', type: 'select', options: [['hybrid', 'hybrid gpu'], ['cpu', 'cpu']] },
@@ -31,7 +32,7 @@ export const DEMO_CONTROL_SPECS = [
   { key: 'heightSmooth', label: 'Height blur', type: 'range', min: 0, max: 12, step: 1, int: true },
   { key: 'heightSmoothWeight', label: 'Height blur weight', type: 'range', min: 0, max: 1, step: 0.05 },
 
-  { type: 'details', label: 'Preview strip' },
+  { type: 'details', label: 'Strip tuning' },
   { key: 'taperLen', label: 'End taper len', type: 'range', min: 0.05, max: 0.8, step: 0.01 },
   { key: 'previewTaperPower', label: 'End taper power', type: 'range', min: 0.5, max: 3, step: 0.05 },
   { key: 'tipRadius', label: 'Tip radius', type: 'range', min: 0.001, max: 0.02, step: 0.001 },
@@ -45,7 +46,9 @@ export const DEMO_CONTROL_SPECS = [
 
   { type: 'section', label: 'Surface' },
   { key: 'peak', label: 'Peak', type: 'range', min: 0, max: 0.45, step: 0.005, live: true },
-  { key: 'roughness', label: 'Rough', type: 'range', min: 0, max: 0.35, step: 0.005, live: true },
   { key: 'profile', label: 'Profile', type: 'select', options: [['linear', 'linear'], ['round', 'round']] },
-  { key: 'envMapIntensity', label: 'Env strength', type: 'range', min: 0.4, max: 3, step: 0.05 },
+
+  { type: 'section', label: 'Chrome' },
+  { key: 'roughness', label: 'Rough', type: 'range', min: 0, max: 0.35, step: 0.005, live: true },
+  { key: 'envMapIntensity', label: 'Env strength', type: 'range', min: 0.4, max: 3, step: 0.05, live: true },
 ];

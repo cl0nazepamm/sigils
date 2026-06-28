@@ -1,7 +1,9 @@
 import {
+  buildSparseCurveGeometry,
   createChromeMaterial,
   createDrawDemoState,
   chromeOptionsFromState,
+  sparsePreviewOptionsFromState,
   updateChromeMaterial,
 } from '../../src/index.js';
 import { buildResidentField } from '../../src/meshlessField.js';
@@ -27,7 +29,6 @@ import {
 export const meta = {
   id: 'meshless',
   label: 'Raymarch',
-  hint: 'Meshless SDF raymarch · field stays on the GPU, no mesh build',
 };
 
 const LIVE_REBUILD_MIN_MS = 80;
@@ -103,7 +104,6 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
   panelRoot.innerHTML = `
     <div class="mode-head">
       <h2>Raymarch</h2>
-      <p class="sub">${meta.hint}</p>
     </div>
     <div id="controls"></div>
     <div class="buttons">
@@ -112,7 +112,6 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
       <button id="clear" type="button">Clear</button>
       <button id="export-glb" type="button">GLB</button>
     </div>
-    <div class="note">Left-drag to draw. Right-drag orbits, scroll zooms. The committed sigil is raymarched — no mesh.</div>
   `;
   infoRoot.innerHTML = `<b>raymarch</b><br /><span id="stats">—</span>`;
 
@@ -129,11 +128,28 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
   let builtRaw = null;
   let builtSmooth = null;
   let builtProfile = null;
+  const defaultState = createDrawDemoState();
 
   const controlUi = mountControlPanel(controlsRoot, MESHLESS_CONTROL_SPECS, state, {
     onChange: (key) => {
       if (key === 'guides') refreshGuides();
       refreshPreview();
+      if (key === 'previewStripOnly') {
+        rebuildVersion++;
+        clearTimeout(rebuildTimer);
+        clearTimeout(liveRebuildTimer);
+        liveQueued = false;
+        if (state.previewStripOnly) {
+          clearRaymarchMesh();
+          holdPreviewUntilRebuild = false;
+          gridInfo = 'strip';
+        } else {
+          clearPreviewMesh();
+          scheduleRebuild(0);
+        }
+        return;
+      }
+      if (state.previewStripOnly) return;
       if (isDrawSettingKey(key)) {
         if (drawing) scheduleLiveRebuild();
         return;
@@ -145,7 +161,9 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
       // first committed stroke, so update preview first and guard the sigil.
       updateChromeMaterial(previewMaterial, chromeOptionsFromState(state));
       if (sigilMaterial) updateRaymarchSigilMaterial(sigilMaterial, chromeOptionsFromState(state));
+      if (state.previewStripOnly) refreshPreview();
     },
+    defaults: defaultState,
     signal,
   });
 
@@ -268,12 +286,35 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     old.dispose();
   }
 
-  // Preview draw is DISABLED in the raymarch mode: while dragging, nothing renders
-  // for the in-progress stroke, so the committed raymarch surface is the only thing
-  // on screen and its true cost/responsiveness is what you see. (The realtime mesh
-  // mode keeps its sparse-strip preview.) previewMesh stays empty + hidden.
+  function clearRaymarchMesh() {
+    sigilMesh.visible = false;
+    const old = sigilMesh.geometry;
+    sigilMesh.geometry = new THREE.BufferGeometry();
+    old.dispose();
+  }
+
   function refreshPreview() {
-    previewMesh.visible = false;
+    if (!state.previewStripOnly) {
+      previewMesh.visible = false;
+      return;
+    }
+
+    const paths = activeBuildPaths(strokes, current, state);
+    if (paths.length === 0) {
+      clearPreviewMesh();
+      return;
+    }
+
+    const geometry = buildSparseCurveGeometry(paths, {
+      ...sparsePreviewOptionsFromState(state),
+      symmetry: 1,
+      mirror: false,
+      phase: 0,
+    });
+    const old = previewMesh.geometry;
+    previewMesh.geometry = geometry;
+    old.dispose();
+    previewMesh.visible = (geometry.getAttribute('position')?.count ?? 0) > 0;
   }
 
   // rebuild() is called both debounced (scheduleRebuild) and directly
@@ -316,6 +357,13 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     if (signal.aborted) return;
     try {
       lastError = '';
+      if (state.previewStripOnly) {
+        clearRaymarchMesh();
+        holdPreviewUntilRebuild = false;
+        gridInfo = 'strip';
+        refreshPreview();
+        return;
+      }
       // allStrokes() includes the in-progress stroke while drawing, so live
       // rebuilds raymarch the pen stroke as it's drawn (read once, synchronously,
       // before the first await so a still-growing `current` can't tear the build).
@@ -333,7 +381,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
       field = await buildResidentField(renderer, active, buildOpts, pool);
 
       // Discard results that an unmount or a newer rebuild has superseded.
-      if (version !== rebuildVersion || signal.aborted) {
+      if (version !== rebuildVersion || signal.aborted || state.previewStripOnly) {
         field?.dispose?.();
         return;
       }
@@ -414,13 +462,14 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     activePointer = null;
     if (current.length >= 2) {
       strokes.push(makeStrokeRecord(current, state));
-      holdPreviewUntilRebuild = true;
+      holdPreviewUntilRebuild = !state.previewStripOnly;
     } else {
       refreshPreview();
     }
     current = [];
     refreshGuides();
-    rebuild();
+    if (state.previewStripOnly) refreshPreview();
+    else rebuild();
   }
 
   function rotateView(dx, dy) {
@@ -484,7 +533,8 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     holdPreviewUntilRebuild = false;
     clearPreviewMesh();
     refreshGuides();
-    rebuild();
+    if (state.previewStripOnly) refreshPreview();
+    else rebuild();
   }, { signal });
   ui.clear.addEventListener('click', () => {
     if (drawing) finishStroke();
@@ -493,7 +543,8 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     holdPreviewUntilRebuild = false;
     clearPreviewMesh();
     refreshGuides();
-    rebuild();
+    if (state.previewStripOnly) refreshPreview();
+    else rebuild();
   }, { signal });
 
   renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault(), { signal });
@@ -521,7 +572,8 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     if (!drawing || event.pointerId !== activePointer) return;
     if (!pushPoint(planePoint(event))) return;
     refreshCurrentGuide();
-    scheduleLiveRebuild(); // raymarch the in-progress stroke live as it's drawn
+    if (state.previewStripOnly) refreshPreview();
+    else scheduleLiveRebuild(); // raymarch the in-progress stroke live as it's drawn
   }, { signal });
 
   renderer.domElement.addEventListener('pointerup', finishStroke, { signal });

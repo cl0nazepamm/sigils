@@ -301,8 +301,8 @@ export function createRaymarchSigilMaterial(field, opts = {}) {
   return material;
 }
 
-/** Live setter for the surface uniforms (peak/roughness), no rebuild. */
-export function updateRaymarchSigilMaterial(material, { peakHeight, roughness } = {}) {
+/** Live setter for material controls, no rebuild. */
+export function updateRaymarchSigilMaterial(material, { peakHeight, roughness, envMapIntensity } = {}) {
   // The meshless mode creates this material LAZILY (null until the first stroke
   // is committed), so guard against a null material from live slider drags.
   if (!material) return;
@@ -310,6 +310,10 @@ export function updateRaymarchSigilMaterial(material, { peakHeight, roughness } 
   if (!u) return;
   if (peakHeight !== undefined) u.peakHeight.value = peakHeight;
   if (roughness !== undefined) u.roughness.value = roughness;
+  if (envMapIntensity !== undefined) {
+    material.envMapIntensity = envMapIntensity;
+    material.needsUpdate = true;
+  }
 }
 
 /**
