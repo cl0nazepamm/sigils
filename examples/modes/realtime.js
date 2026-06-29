@@ -26,15 +26,15 @@ export const meta = {
 };
 
 export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(), strokes = [] }) {
-  const { THREE, renderer, scene, camera, controls } = ctx;
+  const { THREE, renderer, scene, controls } = ctx;
   const abort = new AbortController();
   const { signal } = abort;
-  const { planePoint } = createDrawPlane(camera);
+  let camera = ctx.setOrthographicView(state.orthographic);
+  const { planePoint } = createDrawPlane(() => camera);
 
-  camera.up.set(0, 1, 0);
-  camera.position.set(0, -0.85, 3.7);
   controls.target.set(0, 0, 0);
-  controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: null };
+  camera = ctx.setCameraHome();
+  controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.PAN, RIGHT: null };
   renderer.domElement.style.cursor = 'crosshair';
 
   panelRoot.innerHTML = `
@@ -58,6 +58,10 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
 
   const controlUi = mountControlPanel(controlsRoot, DEMO_CONTROL_SPECS, state, {
     onChange: (key) => {
+      if (key === 'orthographic') {
+        camera = ctx.setOrthographicView(state.orthographic);
+        return;
+      }
       if (key === 'guides') refreshGuides();
       if (key === 'profile') replaceChromeMaterial();
       refreshPreview();
@@ -137,6 +141,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
   function applyDrawDefaults() {
     Object.assign(state, createDrawDemoState());
     syncControlPanelToState(controlUi, state, panelRoot);
+    camera = ctx.setOrthographicView(state.orthographic);
     replaceChromeMaterial();
     refreshGuides();
     refreshPreview();

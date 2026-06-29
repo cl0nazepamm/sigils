@@ -7,6 +7,7 @@ export const DEMO_CONTROL_SPECS = [
   { key: 'thickness', label: 'Width', type: 'range', min: 0.04, max: 0.32, step: 0.005 },
   { key: 'guides', label: 'Curves', type: 'check' },
   { key: 'previewStripOnly', label: 'Preview strip', type: 'check' },
+  { key: 'orthographic', label: 'No perspective', type: 'check' },
 
   { type: 'section', label: 'Field' },
   { key: 'backend', label: 'Backend', type: 'select', options: [['hybrid', 'hybrid gpu'], ['cpu', 'cpu']] },
@@ -15,10 +16,9 @@ export const DEMO_CONTROL_SPECS = [
   { key: 'taper', label: 'Cap taper', type: 'range', min: 0, max: 1, step: 0.01 },
   { key: 'taperPower', label: 'Tip taper', type: 'range', min: 0.35, max: 2.4, step: 0.01 },
   { key: 'edgeFalloffNorm', label: 'Falloff', type: 'range', min: 0.18, max: 1.2, step: 0.01 },
-  { key: 'base', label: 'Base', type: 'range', min: 0, max: 0.16, step: 0.005 },
+  { key: 'base', label: 'Base (cap)', type: 'range', min: 0, max: 0.16, step: 0.005 },
 
   { type: 'details', label: 'Field advanced' },
-  { key: 'phase', label: 'Phase', type: 'range', min: -3.14, max: 3.14, step: 0.01 },
   { key: 'resampleFactor', label: 'Resample × width', type: 'range', min: 0.04, max: 0.24, step: 0.01 },
   { key: 'gridBufferFactor', label: 'Grid margin × threshold', type: 'range', min: 0.5, max: 3, step: 0.05 },
   { key: 'depthMode', label: 'Depth', type: 'select', options: [['boundary', 'boundary'], ['centerline', 'centerline']] },

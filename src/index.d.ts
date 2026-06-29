@@ -159,6 +159,7 @@ export interface SigilState {
   thickness: number;
   guides: boolean;
   previewStripOnly: boolean;
+  orthographic: boolean;
   backend: 'hybrid' | 'cpu';
   resolution: number;
   smooth: number;
@@ -205,6 +206,7 @@ export const SIGIL_DEFAULTS: {
     thickness: number;
     guides: boolean;
     previewStripOnly: boolean;
+    orthographic: boolean;
   };
   field: Record<string, number | string>;
   melt: Record<string, number>;

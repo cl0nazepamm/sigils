@@ -6,6 +6,11 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
  * Shared WebGPU renderer + scene shell for the unified sigils demo.
  */
 export async function createDemoContext() {
+  const cameraHome = new THREE.Vector3(0, -0.85, 3.7);
+  const cameraFov = 38;
+  const cameraNear = 0.1;
+  const cameraFar = 100;
+  const orthographicDistance = cameraHome.length();
   const renderer = new THREE.WebGPURenderer({ antialias: true, alpha: true });
   renderer.setClearAlpha?.(0);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -20,13 +25,68 @@ export async function createDemoContext() {
   const scene = new THREE.Scene();
   scene.background = null;
 
-  const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 100);
-  camera.up.set(0, 1, 0);
-  camera.position.set(0, -0.85, 3.7);
+  const perspectiveCamera = new THREE.PerspectiveCamera(cameraFov, window.innerWidth / window.innerHeight, cameraNear, cameraFar);
+  const orthographicCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, cameraNear, cameraFar);
+  let camera = perspectiveCamera;
+  perspectiveCamera.up.set(0, 1, 0);
+  perspectiveCamera.position.copy(cameraHome);
+  orthographicCamera.up.set(0, 1, 0);
+  orthographicCamera.position.set(0, 0, orthographicDistance);
+  orthographicCamera.lookAt(0, 0, 0);
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.target.set(0, 0, 0);
+
+  function updateCameraProjection() {
+    const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+    perspectiveCamera.aspect = aspect;
+    perspectiveCamera.updateProjectionMatrix();
+
+    const distance = Math.max(0.001, orthographicCamera.position.distanceTo(controls.target));
+    const height = 2 * distance * Math.tan(THREE.MathUtils.degToRad(cameraFov * 0.5));
+    const width = height * aspect;
+    orthographicCamera.left = -width / 2;
+    orthographicCamera.right = width / 2;
+    orthographicCamera.top = height / 2;
+    orthographicCamera.bottom = -height / 2;
+    orthographicCamera.updateProjectionMatrix();
+  }
+
+  function alignOrthographicCamera() {
+    orthographicCamera.up.set(0, 1, 0);
+    orthographicCamera.position.set(controls.target.x, controls.target.y, controls.target.z + orthographicDistance);
+    orthographicCamera.lookAt(controls.target);
+  }
+
+  function setOrthographicView(enabled) {
+    const next = enabled ? orthographicCamera : perspectiveCamera;
+    if (enabled) alignOrthographicCamera();
+    if (next !== camera) camera = next;
+    controls.object = camera;
+    updateCameraProjection();
+    controls.update();
+    return camera;
+  }
+
+  function setCameraHome() {
+    camera.up.set(0, 1, 0);
+    if (camera.isOrthographicCamera) {
+      alignOrthographicCamera();
+    } else {
+      camera.position.copy(cameraHome);
+      camera.lookAt(controls.target);
+    }
+    updateCameraProjection();
+    controls.update();
+    return camera;
+  }
+
+  function getActiveCamera() {
+    return camera;
+  }
+
+  updateCameraProjection();
 
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -44,8 +104,7 @@ export async function createDemoContext() {
   }
 
   function onResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
+    updateCameraProjection();
     renderer.setSize(window.innerWidth, window.innerHeight);
     resizeHandler?.();
   }
@@ -80,9 +139,15 @@ export async function createDemoContext() {
     THREE,
     renderer,
     scene,
-    camera,
+    get camera() {
+      return camera;
+    },
     controls,
     pmrem,
+    getActiveCamera,
+    setCameraHome,
+    setOrthographicView,
+    updateCameraProjection,
     clearScene,
     setResizeHandler,
     setAnimationLoop,
@@ -99,7 +164,7 @@ export function createDrawPlane(camera) {
   function planePoint(event) {
     ndc.x = (event.clientX / window.innerWidth) * 2 - 1;
     ndc.y = -(event.clientY / window.innerHeight) * 2 + 1;
-    raycaster.setFromCamera(ndc, camera);
+    raycaster.setFromCamera(ndc, typeof camera === 'function' ? camera() : camera);
     if (!raycaster.ray.intersectPlane(drawPlane, hit)) return null;
     return [hit.x, hit.y];
   }

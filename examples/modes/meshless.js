@@ -87,18 +87,18 @@ function compactControlSpecs(specs, ignored) {
 }
 
 export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(), strokes = [] }) {
-  const { THREE, renderer, scene, camera, controls } = ctx;
+  const { THREE, renderer, scene, controls } = ctx;
   const abort = new AbortController();
   const { signal } = abort;
-  const { planePoint } = createDrawPlane(camera);
+  let camera = ctx.setOrthographicView(state.orthographic);
+  const { planePoint } = createDrawPlane(() => camera);
 
   // ctx is shared between modes and realtime does not restore these, so re-set
   // camera/controls/cursor on mount; remember the button map to restore later.
   const prevMouseButtons = controls.mouseButtons;
-  camera.up.set(0, 1, 0);
-  camera.position.set(0, -0.85, 3.7);
   controls.target.set(0, 0, 0);
-  controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: null };
+  camera = ctx.setCameraHome();
+  controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.PAN, RIGHT: null };
   renderer.domElement.style.cursor = 'crosshair';
 
   panelRoot.innerHTML = `
@@ -132,6 +132,10 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
 
   const controlUi = mountControlPanel(controlsRoot, MESHLESS_CONTROL_SPECS, state, {
     onChange: (key) => {
+      if (key === 'orthographic') {
+        camera = ctx.setOrthographicView(state.orthographic);
+        return;
+      }
       if (key === 'guides') refreshGuides();
       refreshPreview();
       if (key === 'previewStripOnly') {
@@ -212,6 +216,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
   function applyDrawDefaults() {
     Object.assign(state, createDrawDemoState());
     syncControlPanelToState(controlUi, state, panelRoot);
+    camera = ctx.setOrthographicView(state.orthographic);
     updateChromeMaterial(previewMaterial, chromeOptionsFromState(state));
     if (sigilMaterial) updateRaymarchSigilMaterial(sigilMaterial, chromeOptionsFromState(state));
     refreshGuides();

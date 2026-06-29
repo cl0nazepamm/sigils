@@ -178,9 +178,7 @@ export function createRaymarchSigilMaterial(field, opts = {}) {
       clamp(float(1).sub(dist.div(uThr.mul(w).max(1e-6))), float(0), float(1)),
     );
     const bD = clamp(uThr.mul(w).sub(dist).div(uFall), float(0), float(1));
-    // Match the mesh's applyBoundaryDepth: mix(boundary, field, depthBlend) so
-    // boundary dominates at blend=0 and the field at blend=1 (was inverted).
-    return mix(bD, fieldD, uDepthBlend);
+    return min(bD, mix(bD, fieldD, uDepthBlend));
   });
   const depthAt = Fn(([x, y]) => depthOf(sampleSm(x, y)));
 

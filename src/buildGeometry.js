@@ -282,7 +282,7 @@ function applyBoundaryDepth(region, falloff, heightSmoothPasses, field, threshol
     let d = Math.min(1, boundaryDistance(x, y, bfield, width) / width);
     if (depthBlend > 0 && field?.depth) {
       const fd = field.depth(x, y, threshold);
-      d = d * (1 - depthBlend) + fd * depthBlend;
+      d = Math.min(d, d * (1 - depthBlend) + fd * depthBlend);
     }
     depth[i] = d;
   }

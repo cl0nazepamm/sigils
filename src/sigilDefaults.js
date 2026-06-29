@@ -42,6 +42,7 @@ export const SIGIL_DEFAULTS = {
     thickness: DRAW_DEMO_DEFAULTS.thickness,
     guides: false,
     previewStripOnly: false,
+    orthographic: false,
   },
   field: {
     backend: DRAW_DEMO_DEFAULTS.backend,
@@ -97,6 +98,7 @@ export function createSigilState(overrides = {}) {
     thickness: overrides.thickness ?? d.stroke.thickness,
     guides: overrides.guides ?? d.stroke.guides,
     previewStripOnly: overrides.previewStripOnly ?? d.stroke.previewStripOnly,
+    orthographic: overrides.orthographic ?? d.stroke.orthographic,
     backend: overrides.backend ?? d.field.backend,
     resolution: overrides.resolution ?? overrides.resolutionQuality ?? overrides.resolutionFast ?? d.field.resolution,
     smooth: overrides.smooth ?? d.field.smooth,
