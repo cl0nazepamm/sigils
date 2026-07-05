@@ -130,6 +130,7 @@ import {
   finishSigilGeometryFromField,
   createChromeMaterial, // TSL chrome NodeMaterial
   spirograph,           // hypotrochoid stroke (cusps + loops)
+  bspline,              // Alias-style CV curve -> polyline (open or closed)
   radialSymmetry,       // strokes -> N rotated copies
   DistanceField,        // grid distance field with sample()/gradient()
   fillRegion,           // filled marching squares
@@ -145,6 +146,18 @@ import { createSigil, spirograph } from 'sigils';
 const stroke = spirograph({ R: 7, r: 4, d: 6, radius: 1.2 });
 const sigil = createSigil(stroke, { thickness: 0.24, peakHeight: 0.15, smooth: 2 });
 // d ≈ r → sharp cusps · d > r → looping web · low `smooth` keeps cusps crisp
+```
+
+Smooth curves from a few control vertices come from `bspline` — an Alias-style
+CV curve (the curve follows the CV hull; it does not pass through interior CVs):
+
+```js
+import { createSigil, bspline } from 'sigils';
+
+const stroke = bspline([[0, 1], [0.9, 0.4], [0.5, -0.8], [-0.5, -0.8], [-0.9, 0.4]], {
+  closed: true,   // periodic loop; open curves clamp to the first/last CV
+});
+const sigil = createSigil(stroke, { symmetry: 3, thickness: 0.18 });
 ```
 
 Bring your own material? The geometry exposes these vertex attributes:
@@ -163,14 +176,15 @@ npm install
 npm run example
 ```
 
-Open http://localhost:5173/ — one page with a **Forge** switch:
+Open http://localhost:5173/ — one page with a **Mode** switch:
 
-| Forge | What it does |
-|-------|----------------|
-| **Fast** | Sparse chrome preview while drawing; GPU SDF merge on release (280 grid). |
-| **Quality** | Sparse chrome preview while drawing; full hybrid SDF merge on release (460 grid). |
+| Mode | What it does |
+|------|----------------|
+| **Freehand** | Draw strokes; sparse chrome preview while the pointer is down, merged hybrid SDF rebuild on release. |
+| **CV Curves** | Alias-style editable B-splines. Click to place CVs (the curve follows the hull), click the first CV to close the loop, double-click / Enter to commit, Esc cancels, Backspace removes the last CV. Every CV stays grabbable after commit — drag to re-shape, the sigil re-melts on release. |
+| **Raymarch** | Meshless: the GPU-resident distance field is raymarched per-pixel; nothing is ever read back. |
 
-Legacy URLs: `/draw.html` → `?forge=quality`, `/realtime.html` → `?forge=fast`.
+Right-drag orbits, middle-drag pans; GLB export bakes the displaced chrome mesh.
 
 ### Library surface
 

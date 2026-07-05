@@ -1,4 +1,5 @@
 import {
+  bspline,
   radialSymmetry,
   shapeOptionsFromState,
 } from '../../src/index.js';
@@ -21,6 +22,50 @@ export function makeStrokeRecord(points, state) {
 
 export function strokePoints(stroke) {
   return Array.isArray(stroke) ? stroke : stroke.points;
+}
+
+/**
+ * Editable CV-curve record (Alias-style B-spline). `points` is the sampled
+ * polyline the build pipeline consumes; `cvs` stays authoritative so the
+ * curve can be re-edited after commit.
+ */
+export function makeSplineRecord(cvs, closed, state) {
+  const record = {
+    kind: 'spline',
+    cvs: clonePath(cvs),
+    closed: closed === true,
+    points: sampleSplinePoints(cvs, closed),
+    draw: captureDrawSettings(state),
+    expanded: null,
+  };
+  record.expanded = expandStrokeRecord(record);
+  return record;
+}
+
+export function isSplineRecord(stroke) {
+  return !!stroke && !Array.isArray(stroke) && stroke.kind === 'spline';
+}
+
+/** Re-sample a spline record after its CVs changed (drag edit). */
+export function updateSplineRecord(record, cvs = record.cvs, closed = record.closed) {
+  record.cvs = clonePath(cvs);
+  record.closed = closed === true;
+  record.points = sampleSplinePoints(record.cvs, record.closed);
+  record.expanded = expandStrokeRecord(record);
+  return record;
+}
+
+export function sampleSplinePoints(cvs, closed) {
+  const points = bspline(cvs, { closed });
+  // The field/strip builders detect closure by endpoint proximity; the periodic
+  // sampler omits the seam sample, so close the polyline explicitly.
+  if (closed && points.length >= 3) points.push([points[0][0], points[0][1]]);
+  return points;
+}
+
+/** Expand loose points with the CURRENT draw settings (live draft preview). */
+export function expandActivePaths(points, state) {
+  return expandPoints(points, captureDrawSettings(state));
 }
 
 export function committedBuildPaths(strokes) {

@@ -64,19 +64,21 @@ export async function gpuSigilizePositions(renderer, geometry, opts = {}) {
   const countBuf = new StorageBufferAttribute(neighborCount, 1);
   const neighBuf = new StorageBufferAttribute(neighborIndices, 1);
 
-  let readAttr = posAAttr;
-  let writeAttr = posBAttr;
   const maxNeighbors = uint(maxDeg);
   const w = float(weight);
 
-  for (let pass = 0; pass < iterations; pass++) {
-    const posIn = storage(readAttr, 'vec2', count).toReadOnly();
-    const posOut = storage(writeAttr, 'vec2', count);
+  // Two fixed ping-pong kernels (A→B, B→A) queued `iterations` times into ONE
+  // compute pass: dispatches in a pass are ordered with storage writes visible
+  // to the next dispatch, so a single computeAsync replaces one await (and one
+  // fresh kernel/pipeline) per pass.
+  const makeKernel = (fromAttr, toAttr) => {
+    const posIn = storage(fromAttr, 'vec2', count).toReadOnly();
+    const posOut = storage(toAttr, 'vec2', count);
     const activeMask = storage(activeBuf, 'float', count).toReadOnly();
     const nCount = storage(countBuf, 'uint', count).toReadOnly();
     const nIndex = storage(neighBuf, 'uint', count * maxDeg).toReadOnly();
 
-    const kernel = Fn(() => {
+    return Fn(() => {
       const vi = instanceIndex;
       const mask = activeMask.element(vi);
       const px = posIn.element(vi).x;
@@ -103,12 +105,17 @@ export async function gpuSigilizePositions(renderer, geometry, opts = {}) {
       const outY = mix(py, by, mask);
       posOut.element(vi).assign(vec2(outX, outY));
     })().compute(count);
+  };
 
-    await renderer.computeAsync(kernel);
-    [readAttr, writeAttr] = [writeAttr, readAttr];
+  const kernelAB = makeKernel(posAAttr, posBAttr);
+  const kernelBA = makeKernel(posBAttr, posAAttr);
+  const batch = [];
+  for (let pass = 0; pass < iterations; pass++) {
+    batch.push(pass % 2 === 0 ? kernelAB : kernelBA);
   }
+  await renderer.computeAsync(batch);
 
-  const finalAttr = readAttr;
+  const finalAttr = iterations % 2 === 1 ? posBAttr : posAAttr;
   const buffer = await renderer.getArrayBufferAsync(finalAttr);
   const packed = new Float32Array(buffer);
 
@@ -162,18 +169,18 @@ export async function gpuBlurRegionPositions(renderer, region, iterations, weigh
   const countAttr = new StorageBufferAttribute(neighborCount, 1);
   const neighAttr = new StorageBufferAttribute(neighborIndices, 1);
 
-  let readAttr = posAAttr;
-  let writeAttr = posBAttr;
   const maxNeighbors = uint(maxDeg);
   const wNode = float(w);
 
-  for (let pass = 0; pass < passes; pass++) {
-    const posIn = storage(readAttr, 'vec2', count).toReadOnly();
-    const posOut = storage(writeAttr, 'vec2', count);
+  // Same single-pass ping-pong batching as gpuSigilizePositions: all passes
+  // queue into one computeAsync instead of a GPU round trip per pass.
+  const makeKernel = (fromAttr, toAttr) => {
+    const posIn = storage(fromAttr, 'vec2', count).toReadOnly();
+    const posOut = storage(toAttr, 'vec2', count);
     const nCount = storage(countAttr, 'uint', count).toReadOnly();
     const nIndex = storage(neighAttr, 'uint', count * maxDeg).toReadOnly();
 
-    const kernel = Fn(() => {
+    return Fn(() => {
       const vi = instanceIndex;
       const px = posIn.element(vi).x;
       const py = posIn.element(vi).y;
@@ -197,12 +204,18 @@ export async function gpuBlurRegionPositions(renderer, region, iterations, weigh
       const outY = select(n.greaterThan(0), by, py);
       posOut.element(vi).assign(vec2(outX, outY));
     })().compute(count);
+  };
 
-    await renderer.computeAsync(kernel);
-    [readAttr, writeAttr] = [writeAttr, readAttr];
+  const kernelAB = makeKernel(posAAttr, posBAttr);
+  const kernelBA = makeKernel(posBAttr, posAAttr);
+  const batch = [];
+  for (let pass = 0; pass < passes; pass++) {
+    batch.push(pass % 2 === 0 ? kernelAB : kernelBA);
   }
+  await renderer.computeAsync(batch);
 
-  const buffer = await renderer.getArrayBufferAsync(readAttr);
+  const finalAttr = passes % 2 === 1 ? posBAttr : posAAttr;
+  const buffer = await renderer.getArrayBufferAsync(finalAttr);
   const packed = new Float32Array(buffer);
   for (let i = 0; i < count; i++) {
     positions[i * 3] = packed[i * 2];
