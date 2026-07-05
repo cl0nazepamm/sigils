@@ -444,3 +444,31 @@ export function boundsOf(pathSet: Polyline[]): {
   minX: number; minY: number; maxX: number; maxY: number; width: number; height: number;
 };
 export function centroidOf(pathSet: Polyline[]): Pt2;
+
+export interface SurfaceSigilOptions {
+  /** Fat-stroke width in world units. @default 0.1 */
+  thickness?: number;
+  /** Rim distance reaching depth 1. @default thickness*0.5 */
+  edgeFalloff?: number;
+  /** Boundary depth profile on the surface. @default 'carve' */
+  relief?: 'plateau' | 'carve';
+  /** Carve depth cap in falloff units. @default 6 */
+  reliefRange?: number;
+  /** Displacement along the surface normal at depth 1. @default 0.05 */
+  peakHeight?: number;
+  /** Tangential position-melt passes. @default 12 */
+  sigilize?: number;
+  /** Melt influence per pass. @default 0.75 */
+  sigilizeWeight?: number;
+  /** Depth blur passes, rim pinned. @default 2 */
+  heightSmooth?: number;
+  /** Depth blur influence per pass. @default 0.5 */
+  heightSmoothWeight?: number;
+}
+
+/** Grow a sigil fill directly on a target mesh from strokes painted on its surface. */
+export function buildSurfaceSigilGeometry(
+  target: BufferGeometry,
+  strokes: Array<Array<[number, number, number]>>,
+  opts?: SurfaceSigilOptions,
+): BufferGeometry;
