@@ -1,0 +1,179 @@
+/**
+ * Paint-on-Mesh mode: drop a GLB onto the canvas (or use the built-in torus
+ * knot), left-drag to paint strokes on its surface, release to grow the
+ * surface-native sigil (buildSurfaceSigilGeometry). Right-drag orbits.
+ *
+ * Strokes live in the target's LOCAL space so the emblem follows the mesh.
+ * Displacement is baked into positions, so a plain metal material shades it.
+ */
+
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { buildSurfaceSigilGeometry } from '../../src/index.js';
+import { bindRightDragOrbit } from '../shared/orbit.js';
+
+export const meta = { id: 'surface', label: 'Paint on Mesh' };
+
+export function mount(ctx, { panelRoot, infoRoot, state }) {
+  const { THREE, renderer, scene } = ctx;
+  const abort = new AbortController();
+  const { signal } = abort;
+  const raycaster = new THREE.Raycaster();
+
+  ctx.clearScene();
+
+  // --- target mesh (replaceable by GLB drop) ---
+  const targetMaterial = new THREE.MeshStandardMaterial({
+    color: 0x777777, metalness: 0.2, roughness: 0.6,
+  });
+  let target = new THREE.Mesh(
+    new THREE.TorusKnotGeometry(0.7, 0.28, 256, 48), targetMaterial,
+  );
+  scene.add(target);
+
+  const sigilMaterial = new THREE.MeshStandardMaterial({
+    metalness: 1, roughness: state.roughness ?? 0.05,
+    envMapIntensity: state.envMapIntensity ?? 1.6,
+  });
+  let sigilMesh = new THREE.Mesh(new THREE.BufferGeometry(), sigilMaterial);
+  scene.add(sigilMesh);
+
+  const strokes = [];           // committed strokes, target-local space
+  let active = null;            // stroke being painted
+  let previewLine = null;
+
+  const local = { thickness: 0.12, falloff: 0.4, peak: 0.05, sigilize: 12 };
+
+  function rebuild() {
+    const all = active ? [...strokes, active] : strokes;
+    sigilMesh.geometry.dispose();
+    sigilMesh.geometry = all.length
+      ? buildSurfaceSigilGeometry(target.geometry, all, {
+          thickness: local.thickness,
+          edgeFalloff: local.thickness * local.falloff,
+          relief: state.relief ?? 'carve',
+          reliefRange: state.reliefRange ?? 6,
+          peakHeight: local.peak,
+          sigilize: local.sigilize,
+          heightSmooth: state.heightSmooth ?? 2,
+        })
+      : new THREE.BufferGeometry();
+    sigilMesh.position.copy(target.position);
+    sigilMesh.quaternion.copy(target.quaternion);
+    sigilMesh.scale.copy(target.scale);
+    infoRoot.textContent = `${all.length} stroke(s) · ${sigilMesh.geometry.getAttribute('position')?.count ?? 0} verts`;
+  }
+
+  function surfaceHit(event) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    raycaster.setFromCamera(ndc, ctx.camera);
+    const hit = raycaster.intersectObject(target, false)[0];
+    return hit ? target.worldToLocal(hit.point.clone()) : null;
+  }
+
+  function refreshPreview() {
+    if (previewLine) { scene.remove(previewLine); previewLine.geometry.dispose(); previewLine = null; }
+    if (!active || active.length < 2) return;
+    const geo = new THREE.BufferGeometry().setFromPoints(
+      active.map((p) => target.localToWorld(new THREE.Vector3(...p))),
+    );
+    previewLine = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffffff }));
+    scene.add(previewLine);
+  }
+
+  renderer.domElement.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    const p = surfaceHit(event);
+    if (!p) return;
+    active = [[p.x, p.y, p.z]];
+  }, { signal });
+
+  renderer.domElement.addEventListener('pointermove', (event) => {
+    if (!active) return;
+    const p = surfaceHit(event);
+    if (!p) return;
+    const last = active[active.length - 1];
+    if (Math.hypot(p.x - last[0], p.y - last[1], p.z - last[2]) < local.thickness * 0.25) return;
+    active.push([p.x, p.y, p.z]);
+    refreshPreview();
+  }, { signal });
+
+  addEventListener('pointerup', () => {
+    if (!active) return;
+    if (active.length >= 2) strokes.push(active);
+    active = null;
+    refreshPreview();
+    rebuild();
+  }, { signal });
+
+  // --- GLB drag & drop replaces the target ---
+  renderer.domElement.addEventListener('dragover', (e) => e.preventDefault(), { signal });
+  renderer.domElement.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+    const buffer = await file.arrayBuffer();
+    new GLTFLoader().parse(buffer, '', (gltf) => {
+      let found = null;
+      gltf.scene.traverse((o) => { if (!found && o.isMesh) found = o; });
+      if (!found) return;
+      let geo = found.geometry;
+      if (!geo.getIndex()) geo = BufferGeometryUtils.mergeVertices(geo);
+      if (!geo.getAttribute('normal')) geo.computeVertexNormals();
+      // normalize to unit-ish size at the origin
+      geo.computeBoundingSphere();
+      const s = 1 / (geo.boundingSphere.radius || 1);
+      scene.remove(target);
+      target.geometry.dispose();
+      target = new THREE.Mesh(geo, targetMaterial);
+      target.scale.setScalar(s);
+      scene.add(target);
+      strokes.length = 0;
+      rebuild();
+    }, (err) => console.warn('GLB parse failed', err));
+  }, { signal });
+
+  bindRightDragOrbit(ctx, { signal, getCamera: () => ctx.camera });
+
+  // --- minimal panel ---
+  panelRoot.innerHTML = `
+    <div class="section">PAINT ON MESH</div>
+    <p style="font-size:11px;opacity:.7">Left-drag paints on the surface. Right-drag orbits.
+    Drop a .glb on the canvas to replace the target.</p>`;
+  const addSlider = (label, key, min, max, step) => {
+    const row = document.createElement('label');
+    row.style.cssText = 'display:flex;gap:6px;align-items:center;font-size:11px';
+    row.innerHTML = `<span style="width:70px">${label}</span>`;
+    const input = document.createElement('input');
+    Object.assign(input, { type: 'range', min, max, step, value: local[key] });
+    input.addEventListener('input', () => { local[key] = Number(input.value); rebuild(); }, { signal });
+    row.appendChild(input);
+    panelRoot.appendChild(row);
+  };
+  addSlider('Width', 'thickness', 0.02, 0.4, 0.005);
+  addSlider('Falloff', 'falloff', 0.1, 1, 0.01);
+  addSlider('Peak', 'peak', 0, 0.2, 0.002);
+  addSlider('Melt', 'sigilize', 0, 40, 1);
+  const clear = document.createElement('button');
+  clear.textContent = 'CLEAR';
+  clear.addEventListener('click', () => { strokes.length = 0; rebuild(); }, { signal });
+  panelRoot.appendChild(clear);
+
+  ctx.setAnimationLoop(() => renderer.render(scene, ctx.camera));
+  rebuild();
+
+  return () => {
+    abort.abort();
+    ctx.setAnimationLoop(null);
+    if (previewLine) { scene.remove(previewLine); previewLine.geometry.dispose(); }
+    sigilMesh.geometry.dispose();
+    sigilMaterial.dispose();
+    target.geometry.dispose();
+    targetMaterial.dispose();
+    ctx.clearScene();
+  };
+}

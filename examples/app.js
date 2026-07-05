@@ -2,10 +2,11 @@ import { createDemoContext } from './shared/demoContext.js';
 import * as realtime from './modes/realtime.js';
 import * as spline from './modes/spline.js';
 import * as meshless from './modes/meshless.js';
+import * as surface from './modes/surface.js';
 import { createSigilState } from '../src/index.js';
 
 // Registry of example modes. realtime (freehand) stays the default (index 0).
-const MODES = [realtime, spline, meshless];
+const MODES = [realtime, spline, meshless, surface];
 
 const panel = document.getElementById('panel');
 const panelRoot = document.getElementById('mode-panel');
