@@ -15,25 +15,46 @@ import { bindRightDragOrbit } from '../shared/orbit.js';
 export const meta = { id: 'surface', label: 'Paint on Mesh' };
 
 export function mount(ctx, { panelRoot, infoRoot, state }) {
-  const { THREE, renderer, scene } = ctx;
+  const { THREE, renderer, scene, controls } = ctx;
   const abort = new AbortController();
   const { signal } = abort;
   const raycaster = new THREE.Raycaster();
 
   ctx.clearScene();
 
+  // Left button paints, so OrbitControls must not own it; right-drag orbit
+  // comes from bindRightDragOrbit (same convention as the other modes).
+  controls.target.set(0, 0, 0);
+  const camera = ctx.setCameraHome();
+  // the flat-drawing home hugs the plane; back off to frame a unit-ish solid
+  const fitDist = 1.5 / Math.tan(((camera.fov ?? 50) * Math.PI / 180) / 2);
+  camera.position.setLength(fitDist);
+  camera.lookAt(0, 0, 0);
+  controls.update();
+  controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.PAN, RIGHT: null };
+  renderer.domElement.style.cursor = 'crosshair';
+
   // --- target mesh (replaceable by GLB drop) ---
+  // dark matte target so the chrome sigil reads against it
   const targetMaterial = new THREE.MeshStandardMaterial({
-    color: 0x777777, metalness: 0.2, roughness: 0.6,
+    color: 0x232328, metalness: 0.1, roughness: 0.85,
   });
   let target = new THREE.Mesh(
     new THREE.TorusKnotGeometry(0.7, 0.28, 256, 48), targetMaterial,
   );
   scene.add(target);
 
+  // metal needs punctual highlights on top of the env or it reads black
+  const keyLight = new THREE.DirectionalLight(0xffffff, 2.5);
+  keyLight.position.set(2, 3, 4);
+  scene.add(keyLight);
+  const fillLight = new THREE.DirectionalLight(0x8899ff, 0.8);
+  fillLight.position.set(-3, -1, 2);
+  scene.add(fillLight);
+
   const sigilMaterial = new THREE.MeshStandardMaterial({
-    metalness: 1, roughness: state.roughness ?? 0.05,
-    envMapIntensity: state.envMapIntensity ?? 1.6,
+    metalness: 1, roughness: 0.12,
+    envMapIntensity: 2,
   });
   let sigilMesh = new THREE.Mesh(new THREE.BufferGeometry(), sigilMaterial);
   scene.add(sigilMesh);
@@ -42,7 +63,7 @@ export function mount(ctx, { panelRoot, infoRoot, state }) {
   let active = null;            // stroke being painted
   let previewLine = null;
 
-  const local = { thickness: 0.12, falloff: 0.4, peak: 0.05, sigilize: 12 };
+  const local = { thickness: 0.18, falloff: 0.4, peak: 0.08, sigilize: 12 };
 
   function rebuild() {
     const all = active ? [...strokes, active] : strokes;
@@ -70,7 +91,7 @@ export function mount(ctx, { panelRoot, infoRoot, state }) {
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
       -((event.clientY - rect.top) / rect.height) * 2 + 1,
     );
-    raycaster.setFromCamera(ndc, ctx.camera);
+    raycaster.setFromCamera(ndc, camera);
     const hit = raycaster.intersectObject(target, false)[0];
     return hit ? target.worldToLocal(hit.point.clone()) : null;
   }
@@ -90,6 +111,11 @@ export function mount(ctx, { panelRoot, infoRoot, state }) {
     const p = surfaceHit(event);
     if (!p) return;
     active = [[p.x, p.y, p.z]];
+    try {
+      renderer.domElement.setPointerCapture(event.pointerId);
+    } catch {
+      // Some event sources do not create a capturable pointer.
+    }
   }, { signal });
 
   renderer.domElement.addEventListener('pointermove', (event) => {
@@ -137,7 +163,7 @@ export function mount(ctx, { panelRoot, infoRoot, state }) {
     }, (err) => console.warn('GLB parse failed', err));
   }, { signal });
 
-  bindRightDragOrbit(ctx, { signal, getCamera: () => ctx.camera });
+  bindRightDragOrbit(ctx, { signal, getCamera: () => camera });
 
   // --- minimal panel ---
   panelRoot.innerHTML = `
@@ -163,7 +189,10 @@ export function mount(ctx, { panelRoot, infoRoot, state }) {
   clear.addEventListener('click', () => { strokes.length = 0; rebuild(); }, { signal });
   panelRoot.appendChild(clear);
 
-  ctx.setAnimationLoop(() => renderer.render(scene, ctx.camera));
+  ctx.setAnimationLoop(() => {
+    controls.update();
+    renderer.render(scene, camera);
+  });
   rebuild();
 
   return () => {
