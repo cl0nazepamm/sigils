@@ -56,8 +56,10 @@ export function mount(ctx, { panelRoot, infoRoot, state }) {
     metalness: 1, roughness: 0.12,
     envMapIntensity: 2,
   });
-  let sigilMesh = new THREE.Mesh(new THREE.BufferGeometry(), sigilMaterial);
-  scene.add(sigilMesh);
+  // The mesh is (re)created per rebuild: rendering it once with an empty
+  // geometry bakes a dead pipeline into the WebGPU renderer cache, so it
+  // only joins the scene when real geometry exists — with a fresh material.
+  let sigilMesh = null;
 
   const strokes = [];           // committed strokes, target-local space
   let active = null;            // stroke being painted
@@ -65,24 +67,40 @@ export function mount(ctx, { panelRoot, infoRoot, state }) {
 
   const local = { thickness: 0.18, falloff: 0.4, peak: 0.08, sigilize: 12 };
 
+  function clearSigil() {
+    if (!sigilMesh) return;
+    scene.remove(sigilMesh);
+    sigilMesh.geometry.dispose();
+    sigilMesh.material.dispose();
+    sigilMesh = null;
+  }
+
   function rebuild() {
     const all = active ? [...strokes, active] : strokes;
-    sigilMesh.geometry.dispose();
-    sigilMesh.geometry = all.length
-      ? buildSurfaceSigilGeometry(target.geometry, all, {
-          thickness: local.thickness,
-          edgeFalloff: local.thickness * local.falloff,
-          relief: state.relief ?? 'carve',
-          reliefRange: state.reliefRange ?? 6,
-          peakHeight: local.peak,
-          sigilize: local.sigilize,
-          heightSmooth: state.heightSmooth ?? 2,
-        })
-      : new THREE.BufferGeometry();
-    sigilMesh.position.copy(target.position);
-    sigilMesh.quaternion.copy(target.quaternion);
-    sigilMesh.scale.copy(target.scale);
-    infoRoot.textContent = `${all.length} stroke(s) · ${sigilMesh.geometry.getAttribute('position')?.count ?? 0} verts`;
+    clearSigil();
+    let verts = 0;
+    if (all.length) {
+      const geo = buildSurfaceSigilGeometry(target.geometry, all, {
+        thickness: local.thickness,
+        edgeFalloff: local.thickness * local.falloff,
+        relief: state.relief ?? 'carve',
+        reliefRange: state.reliefRange ?? 6,
+        peakHeight: local.peak,
+        sigilize: local.sigilize,
+        heightSmooth: state.heightSmooth ?? 2,
+      });
+      verts = geo.getAttribute('position')?.count ?? 0;
+      if (verts > 0) {
+        sigilMesh = new THREE.Mesh(geo, sigilMaterial.clone());
+        sigilMesh.position.copy(target.position);
+        sigilMesh.quaternion.copy(target.quaternion);
+        sigilMesh.scale.copy(target.scale);
+        scene.add(sigilMesh);
+      } else {
+        geo.dispose();
+      }
+    }
+    infoRoot.textContent = `${all.length} stroke(s) · ${verts} verts`;
   }
 
   function surfaceHit(event) {
@@ -199,7 +217,7 @@ export function mount(ctx, { panelRoot, infoRoot, state }) {
     abort.abort();
     ctx.setAnimationLoop(null);
     if (previewLine) { scene.remove(previewLine); previewLine.geometry.dispose(); }
-    sigilMesh.geometry.dispose();
+    clearSigil();
     sigilMaterial.dispose();
     target.geometry.dispose();
     targetMaterial.dispose();
