@@ -15,6 +15,7 @@ import {
   RAYMARCH_STEPS,
 } from '../../src/tsl/raymarchSigilMaterial.js';
 import { createDrawPlane } from '../shared/demoContext.js';
+import { bindRightDragOrbit } from '../shared/orbit.js';
 import { mountControlPanel, syncControlPanelToState } from '../shared/controlPanel.js';
 import { DEMO_CONTROL_SPECS } from '../shared/demoControlSpecs.js';
 import { bindGlbExportButton } from '../shared/glbExport.js';
@@ -197,12 +198,6 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
   let drawing = false;
   let holdPreviewUntilRebuild = false;
   let activePointer = null;
-  let orbiting = false;
-  let orbitPointer = null;
-  let orbitX = 0;
-  let orbitY = 0;
-  const orbitOffset = new THREE.Vector3();
-  const orbitSpherical = new THREE.Spherical();
 
   const ui = {
     defaults: panelRoot.querySelector('#defaults'),
@@ -477,60 +472,6 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     else rebuild();
   }
 
-  function rotateView(dx, dy) {
-    const rotateSpeed = 0.006;
-    orbitOffset.copy(camera.position).sub(controls.target);
-    orbitSpherical.setFromVector3(orbitOffset);
-    orbitSpherical.theta -= dx * rotateSpeed;
-    orbitSpherical.phi -= dy * rotateSpeed;
-    orbitSpherical.makeSafe();
-    orbitOffset.setFromSpherical(orbitSpherical);
-    camera.position.copy(controls.target).add(orbitOffset);
-    camera.lookAt(controls.target);
-    controls.update();
-  }
-
-  function beginOrbit(event) {
-    if (event.button !== 2) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    orbiting = true;
-    orbitPointer = event.pointerId;
-    orbitX = event.clientX;
-    orbitY = event.clientY;
-    try {
-      renderer.domElement.setPointerCapture(event.pointerId);
-    } catch {
-      // Some event sources do not create a capturable pointer.
-    }
-    renderer.domElement.style.cursor = 'grabbing';
-  }
-
-  function moveOrbit(event) {
-    if (!orbiting || event.pointerId !== orbitPointer) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    rotateView(event.clientX - orbitX, event.clientY - orbitY);
-    orbitX = event.clientX;
-    orbitY = event.clientY;
-  }
-
-  function endOrbit(event) {
-    if (!orbiting || event.pointerId !== orbitPointer) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    try {
-      if (renderer.domElement.hasPointerCapture(event.pointerId)) {
-        renderer.domElement.releasePointerCapture(event.pointerId);
-      }
-    } catch {
-      // Capture may already be gone after browser-level cancellation.
-    }
-    renderer.domElement.style.cursor = 'crosshair';
-    orbiting = false;
-    orbitPointer = null;
-  }
-
   ui.defaults.addEventListener('click', applyDrawDefaults, { signal });
   ui.undo.addEventListener('click', () => {
     if (drawing) finishStroke();
@@ -552,11 +493,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     else rebuild();
   }, { signal });
 
-  renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault(), { signal });
-  renderer.domElement.addEventListener('pointerdown', beginOrbit, { capture: true, signal });
-  renderer.domElement.addEventListener('pointermove', moveOrbit, { capture: true, signal });
-  renderer.domElement.addEventListener('pointerup', endOrbit, { capture: true, signal });
-  renderer.domElement.addEventListener('pointercancel', endOrbit, { capture: true, signal });
+  bindRightDragOrbit(ctx, { signal, getCamera: () => camera });
 
   renderer.domElement.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;

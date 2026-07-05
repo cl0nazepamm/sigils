@@ -83,17 +83,16 @@ export async function buildGpuDistanceField(renderer, paths, opts = {}) {
     result.element(instanceIndex).assign(vec2(sqrt(best), w));
   })().compute(total);
 
-  await renderer.computeAsync(computeField);
-
   // Field smoothing (the distS/weightS height field) runs on the GPU when there
   // are passes to do, packed alongside the untouched raw field into one vec4
-  // buffer so the readback stays a single sync. Marching squares still consumes
-  // both on the CPU, so the readback itself can't go away yet — only the
-  // per-cell blur loops (formerly finishSmoothing/blurArray) move to the GPU.
+  // buffer. Rasterization, every blur pass and the pack all queue into ONE
+  // compute pass (ordered dispatches), so the whole build costs a single
+  // computeAsync + a single readback sync. Marching squares still consumes
+  // both fields on the CPU, so the readback itself can't go away yet.
   const smoothPasses = Math.max(0, Math.floor(field.smooth));
   if (smoothPasses > 0) {
     try {
-      const packed = await smoothFieldAndReadback(renderer, resultAttr, field.width, field.height, smoothPasses);
+      const packed = await smoothFieldAndReadback(renderer, computeField, resultAttr, field.width, field.height, smoothPasses);
       field.distS = new Float32Array(total);
       field.weightS = new Float32Array(total);
       for (let i = 0; i < total; i++) {
@@ -104,11 +103,12 @@ export async function buildGpuDistanceField(renderer, paths, opts = {}) {
       }
       return field;
     } catch {
-      // GPU smoothing unavailable: fall back to a raw readback + CPU blur below,
-      // keeping the GPU rasterization we already paid for.
+      // GPU smoothing unavailable: rasterize alone below and CPU-blur the
+      // readback instead (re-dispatching the raster kernel is idempotent).
     }
   }
 
+  await renderer.computeAsync(computeField);
   const buffer = await renderer.getArrayBufferAsync(resultAttr);
   const packed = new Float32Array(buffer);
   for (let i = 0; i < total; i++) {
@@ -125,25 +125,32 @@ export async function buildGpuDistanceField(renderer, paths, opts = {}) {
  * buffer and read back in one sync. Matches the CPU {@link blurArray} exactly:
  * same edge-clamped kernel, same horizontal-then-vertical order per pass.
  *
+ * The raster kernel, all blur passes and the pack are submitted as ONE
+ * computeAsync batch — a single compute pass with ordered dispatches — so the
+ * only remaining sync is the readback.
+ *
  * @param {import('three/webgpu').WebGPURenderer} renderer
+ * @param {object} rasterKernel - compute node writing the raw field into rawAttr
  * @param {import('three/webgpu').StorageBufferAttribute} rawAttr - raw vec2 field, left intact
  * @param {number} gw
  * @param {number} gh
  * @param {number} passes
  * @returns {Promise<Float32Array>} interleaved vec4 per cell: [rawDist, rawWeight, smDist, smWeight]
  */
-async function smoothFieldAndReadback(renderer, rawAttr, gw, gh, passes) {
+async function smoothFieldAndReadback(renderer, rasterKernel, rawAttr, gw, gh, passes) {
   const total = gw * gh;
   const bufA = new StorageBufferAttribute(total, 2);
   const bufB = new StorageBufferAttribute(total, 2);
 
-  // Pass 0 reads the raw field; later passes ping-pong A<->B with the result
+  // Pass 0 reads the raw field; later passes ping-pong B->A->B with the result
   // always landing in B. rawAttr is never written, so it survives for the pack.
-  let src = rawAttr;
-  for (let p = 0; p < passes; p++) {
-    await renderer.computeAsync(blurKernel(src, bufA, gw, gh, total, true));
-    await renderer.computeAsync(blurKernel(bufA, bufB, gw, gh, total, false));
-    src = bufB;
+  const batch = [rasterKernel];
+  batch.push(blurKernel(rawAttr, bufA, gw, gh, total, true));
+  batch.push(blurKernel(bufA, bufB, gw, gh, total, false));
+  if (passes > 1) {
+    const h = blurKernel(bufB, bufA, gw, gh, total, true);
+    const v = blurKernel(bufA, bufB, gw, gh, total, false);
+    for (let p = 1; p < passes; p++) batch.push(h, v);
   }
 
   const packAttr = new StorageBufferAttribute(total, 4);
@@ -155,8 +162,9 @@ async function smoothFieldAndReadback(renderer, rawAttr, gw, gh, passes) {
     const s = sm.element(instanceIndex);
     out.element(instanceIndex).assign(vec4(r.x, r.y, s.x, s.y));
   })().compute(total);
-  await renderer.computeAsync(pack);
+  batch.push(pack);
 
+  await renderer.computeAsync(batch);
   const buffer = await renderer.getArrayBufferAsync(packAttr);
   return new Float32Array(buffer);
 }

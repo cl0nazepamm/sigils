@@ -295,6 +295,16 @@ export function buildGpuDistanceField(
   },
 ): Promise<DistanceField>;
 
+/**
+ * Sample a uniform B-spline (Alias-style CV curve) into a polyline. Open
+ * curves are clamped (pinned to the first/last CV); closed curves are
+ * periodic. Degree adapts down when there are few CVs.
+ */
+export function bspline(
+  cvs: Polyline,
+  opts?: { closed?: boolean; degree?: number; samplesPerSpan?: number },
+): Polyline;
+
 export function spirograph(opts?: {
   R?: number;
   r?: number;

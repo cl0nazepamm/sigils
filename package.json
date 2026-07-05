@@ -29,7 +29,8 @@
   "sideEffects": false,
   "scripts": {
     "example": "vite",
-    "build:example": "vite build"
+    "build:example": "vite build",
+    "test": "for f in test/*.mjs; do node \"$f\" || exit 1; done"
   },
   "peerDependencies": {
     "three": ">=0.176.0"

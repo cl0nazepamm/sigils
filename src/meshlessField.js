@@ -60,7 +60,7 @@ function fieldCapacityForGrid(grid, resolution, total) {
 }
 
 import { prepareStrokes } from './strokePipeline.js';
-import { FieldGrid, rasterizeField, blurFieldPass } from './internal/gpuFieldCore.js';
+import { FieldGrid, rasterizeFieldKernel, blurFieldKernel } from './internal/gpuFieldCore.js';
 
 /**
  * @typedef {object} ResidentField
@@ -138,20 +138,26 @@ export async function buildResidentField(renderer, strokes, opts = {}, pool = nu
     b.segAttr.needsUpdate = true;
   }
 
-  // Rasterize the sharp field into rawAttr (kept for the silhouette merge).
-  await rasterizeField(renderer, grid, b.segAttr, b.rawAttr);
-
-  // Separable box blur into smoothA, ping-ponging through smoothB. rawAttr is
-  // read, never overwritten, so the sharp field survives for the merge term.
+  // Rasterize the sharp field into rawAttr (kept for the silhouette merge),
+  // then separable box blur into smoothA, ping-ponging through smoothB.
+  // rawAttr is read, never overwritten, so the sharp field survives for the
+  // merge term. Everything queues into ONE compute pass — dispatches in a pass
+  // are ordered with storage writes visible to the next dispatch, so this
+  // costs a single computeAsync instead of one await per blur direction.
   const passes = Math.max(0, Math.floor(prepared.smooth));
+  const batch = [rasterizeFieldKernel(grid, b.segAttr, b.rawAttr)];
   let smoothAttr = b.rawAttr;
-  let src = b.rawAttr;
-  for (let p = 0; p < passes; p++) {
-    await blurFieldPass(renderer, grid, src, b.smoothB, true);
-    await blurFieldPass(renderer, grid, b.smoothB, b.smoothA, false);
-    src = b.smoothA;
+  if (passes > 0) {
+    batch.push(blurFieldKernel(grid, b.rawAttr, b.smoothB, true));
+    batch.push(blurFieldKernel(grid, b.smoothB, b.smoothA, false));
+    if (passes > 1) {
+      const h = blurFieldKernel(grid, b.smoothA, b.smoothB, true);
+      const v = blurFieldKernel(grid, b.smoothB, b.smoothA, false);
+      for (let p = 1; p < passes; p++) batch.push(h, v);
+    }
     smoothAttr = b.smoothA;
   }
+  await renderer.computeAsync(batch);
 
   const mergeScale = opts.fieldMergeBlendScale ?? 8;
   const depthScale = opts.fieldDepthBlendScale ?? 6;

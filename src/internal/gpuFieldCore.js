@@ -119,13 +119,17 @@ export function buildSegmentBuffer(set, span) {
   return { segmentData: new Float32Array(data), count: data.length / 8 };
 }
 
-export async function rasterizeField(renderer, field, segmentsAttr, outAttr) {
+/**
+ * Build the SDF rasterization compute node without dispatching it, so callers
+ * can queue it together with the blur passes in a single compute pass.
+ */
+export function rasterizeFieldKernel(field, segmentsAttr, outAttr) {
   const total = field.width * field.height;
   const segmentCount = field.segmentCount;
   const segments = storage(segmentsAttr, 'vec4', segmentCount).toReadOnly();
   const result = storage(outAttr, 'vec2', total);
 
-  const kernel = Fn(() => {
+  return Fn(() => {
     const ix = instanceIndex.mod(field.width);
     const iy = instanceIndex.div(field.width);
     const px = float(ix).mul(field.cell).add(field.minX);
@@ -160,18 +164,21 @@ export async function rasterizeField(renderer, field, segmentsAttr, outAttr) {
     const w = select(bestClosed.greaterThan(0.5).or(float(field.taper).lessThanEqual(0)), 1, tapered);
     result.element(instanceIndex).assign(vec2(sqrt(best), w));
   })().compute(total);
-
-  await renderer.computeAsync(kernel);
 }
 
-export async function blurFieldPass(renderer, field, readAttr, writeAttr, horizontal) {
+export async function rasterizeField(renderer, field, segmentsAttr, outAttr) {
+  await renderer.computeAsync(rasterizeFieldKernel(field, segmentsAttr, outAttr));
+}
+
+/** Build one separable blur direction as a compute node (no dispatch). */
+export function blurFieldKernel(field, readAttr, writeAttr, horizontal) {
   const total = field.width * field.height;
   const gw = field.width;
   const gh = field.height;
   const src = storage(readAttr, 'vec2', total).toReadOnly();
   const dst = storage(writeAttr, 'vec2', total);
 
-  const kernel = Fn(() => {
+  return Fn(() => {
     const ix = instanceIndex.mod(gw);
     const iy = instanceIndex.div(gw);
 
@@ -195,8 +202,10 @@ export async function blurFieldPass(renderer, field, readAttr, writeAttr, horizo
       );
     });
   })().compute(total);
+}
 
-  await renderer.computeAsync(kernel);
+export async function blurFieldPass(renderer, field, readAttr, writeAttr, horizontal) {
+  await renderer.computeAsync(blurFieldKernel(field, readAttr, writeAttr, horizontal));
 }
 
 export async function readbackBlurredField(renderer, grid, fieldAttr) {

@@ -28,6 +28,7 @@ export { buildGpuDistanceField } from './gpuDistanceField.js';
 export { buildGpuFieldMeshAsync, buildGpuBlurredField } from './gpuFieldMesh.js';
 export { gpuSigilizePositions, cpuSigilizePositions, sigilizePositionsAsync } from './gpuSigilize.js';
 export { spirograph } from './spirograph.js';
+export { bspline } from './bspline.js';
 export { radialSymmetry } from './symmetry.js';
 export {
   prepareStrokes,
