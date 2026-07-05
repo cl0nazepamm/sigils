@@ -29,10 +29,9 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "test": "node --test \"test/**/*.test.mjs\"",
     "example": "vite",
     "build:example": "vite build",
-    "test": "for f in test/*.mjs; do node \"$f\" || exit 1; done"
+    "test": "node test/run.mjs"
   },
   "peerDependencies": {
     "three": ">=0.176.0"

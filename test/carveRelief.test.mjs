@@ -1,4 +1,3 @@
-import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSigilGeometry } from '../src/index.js';
 
@@ -28,22 +27,25 @@ function depthStats(geo) {
   return { depth, max, finite };
 }
 
-test('plateau relief clamps depth at 1', () => {
+// --- plateau relief clamps depth at 1 ---
+{
   const geo = buildSigilGeometry(BAR, { ...OPTS, relief: 'plateau' });
   const { max, finite } = depthStats(geo);
-  assert.ok(finite, 'depth has no NaN/Infinity');
+  assert.ok(finite, 'plateau depth has no NaN/Infinity');
   assert.ok(max <= 1 + 1e-6, `plateau max depth ${max} stays <= 1`);
   assert.ok(max > 0.95, `plateau reaches full height (max ${max})`);
-});
+}
 
-test('carve relief keeps rising past the falloff', () => {
+// --- carve relief keeps rising past the falloff ---
+{
   const geo = buildSigilGeometry(BAR, { ...OPTS, relief: 'carve' });
   const { max, finite } = depthStats(geo);
-  assert.ok(finite, 'depth has no NaN/Infinity');
+  assert.ok(finite, 'carve depth has no NaN/Infinity');
   assert.ok(max > 1.6 && max < 2.2, `spine depth ${max} near halfwidth/falloff = 2`);
-});
+}
 
-test('carve clamped at 1 matches plateau when no field blend is active', () => {
+// --- carve clamped at 1 matches plateau when no field blend is active ---
+{
   const plateau = buildSigilGeometry(BAR, { ...OPTS, relief: 'plateau' });
   const carve = buildSigilGeometry(BAR, { ...OPTS, relief: 'carve' });
   const dp = plateau.getAttribute('aDepth').array;
@@ -53,19 +55,20 @@ test('carve clamped at 1 matches plateau when no field blend is active', () => {
     assert.ok(Math.abs(Math.min(1, dc[i]) - dp[i]) < 1e-5,
       `vertex ${i}: min(1, carve ${dc[i]}) == plateau ${dp[i]}`);
   }
-});
+}
 
-test('carve pins the rim to depth 0', () => {
+// --- carve pins the rim to depth 0 ---
+{
   const geo = buildSigilGeometry(BAR, { ...OPTS, relief: 'carve', base: 0.05 });
   const pos = geo.getAttribute('position').array;
   const depth = geo.getAttribute('aDepth').array;
   const dome = geo.getAttribute('aDome').array;
   // Wall vertices duplicate rim positions at z=0; the matching dome vertex
   // at the same xy must carry depth 0.
-  const rim = new Map();
+  const rim = new Set();
   for (let i = 0; i < dome.length; i++) {
     if (dome[i] === 0 && pos[i * 3 + 2] === 0) {
-      rim.set(`${pos[i * 3].toFixed(6)}|${pos[i * 3 + 1].toFixed(6)}`, true);
+      rim.add(`${pos[i * 3].toFixed(6)}|${pos[i * 3 + 1].toFixed(6)}`);
     }
   }
   assert.ok(rim.size > 0, 'walls exist');
@@ -78,10 +81,13 @@ test('carve pins the rim to depth 0', () => {
     }
   }
   assert.ok(checked > 0, 'matched rim vertices');
-});
+}
 
-test('reliefRange caps carve depth', () => {
+// --- reliefRange caps carve depth ---
+{
   const geo = buildSigilGeometry(BAR, { ...OPTS, relief: 'carve', reliefRange: 1.5 });
   const { max } = depthStats(geo);
   assert.ok(max <= 1.5 + 1e-6, `capped depth ${max} <= reliefRange`);
-});
+}
+
+console.log('carve relief OK');
