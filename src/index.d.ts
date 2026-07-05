@@ -38,6 +38,14 @@ export interface ShapeOptions {
   sigilizeWeight?: number;
   /** Height field source. Boundary uses distance from the finished rim. @default 'boundary' */
   depthMode?: 'boundary' | 'centerline';
+  /**
+   * Boundary depth profile. Plateau clamps depth at 1 once edgeFalloff is
+   * reached; carve keeps rising with rim distance so wide junctions become
+   * smooth peaks with sharp medial ridges (CNC V-carve style). @default 'plateau'
+   */
+  relief?: 'plateau' | 'carve';
+  /** Carve depth cap in multiples of edgeFalloff. @default 6 */
+  reliefRange?: number;
   /** Boundary distance that reaches full height. @default thickness*0.5 */
   edgeFalloff?: number;
   /** Extra blur passes on the generated height/depth attribute. @default smooth */
@@ -172,6 +180,8 @@ export interface SigilState {
   gridBuffer: number | null;
   gridBufferFactor: number;
   depthMode: 'boundary' | 'centerline';
+  relief: 'plateau' | 'carve';
+  reliefRange: number;
   mergeBlendScale: number;
   depthBlendScale: number;
   sigilize: number;
@@ -361,6 +371,8 @@ export function emblemParamsToOptions(params?: {
   referenceCullMin?: number;
   flatten?: boolean;
   depthMode?: 'boundary' | 'centerline';
+  relief?: 'plateau' | 'carve';
+  reliefRange?: number;
   peakHeight?: number;
   peak?: number;
   peakHeightScale?: number;

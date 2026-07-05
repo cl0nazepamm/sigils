@@ -4,3 +4,8 @@ dist/
 *.log
 debug-*.png
 .DS_Store
+
+# agent / tooling scratch dirs
+.agents/
+.codex/
+.claude/

@@ -33,7 +33,10 @@ strokes ─▶ radial symmetry ─▶ distance field (CPU or WebGPU compute) ─
 4. **Sigilize blur** — blur point positions on the generated
    mesh, turning the raw fat stroke into the melted sigil surface.
 5. **Boundary height** — derive height from distance to the finished boundary
-   edge, not just distance to the original stroke.
+   edge, not just distance to the original stroke. With `relief: 'carve'` the
+   height keeps rising past the falloff (like a CNC V-carve roof), so wide
+   junctions become smooth peaks with sharp medial ridges instead of flat
+   plateaus.
 6. **Solidify + TSL material** — extrude a flat base and side walls into a
    closed solid, push the top surface up from the baked height field, derive
    smooth normals analytically, and shade it as a mirror metal lit by the scene
@@ -108,7 +111,8 @@ updateChromeMaterial(sigil.material, { peakHeight: 0.5, roughness: 0.02 });
 ```
 
 Shape options (`symmetry`, `thickness`, `resolution`, `sigilize`, `depthMode`,
-`base`, `center`, `spiroCopies`, `isoThreshold`, `fieldRangeMax`) change the silhouette or baked attributes and need a rebuild:
+`relief`, `reliefRange`, `base`, `center`, `spiroCopies`, `isoThreshold`,
+`fieldRangeMax`) change the silhouette or baked attributes and need a rebuild:
 
 ```js
 sigil.userData.sigil.rebuild(newStroke, { symmetry: 8, thickness: 0.2 });
@@ -147,7 +151,7 @@ Bring your own material? The geometry exposes these vertex attributes:
 
 | attribute | type  | meaning |
 |-----------|-------|---------|
-| `aDepth`  | float | 0 at the rim, 1 in the raised interior (`boundary`) or stroke centerline (`centerline`) |
+| `aDepth`  | float | 0 at the rim, 1 in the raised interior (`boundary`) or stroke centerline (`centerline`); `relief: 'carve'` bakes values above 1 where the fill is wider than the falloff |
 | `aGrad`   | vec2  | gradient of `aDepth` (for analytic normals) |
 | `aNormal` | vec3  | flat normal for the base + walls |
 | `aDome`   | float | 1 on the top surface, 0 on base/walls |

@@ -49,14 +49,17 @@ export function createChromeMaterial(opts = {}) {
   const uRough = uniform(opts.roughness ?? 0.08);
 
   // --- attributes baked by buildGeometry ---
-  const depth = attribute('aDepth', 'float').clamp(0, 1);
+  // The round profile needs depth in [0,1]; linear passes carve depths > 1
+  // through so junction peaks keep their full height.
+  const roundProfile = opts.profile === 'round';
+  const rawDepth = attribute('aDepth', 'float');
+  const depth = roundProfile ? rawDepth.clamp(0, 1) : rawDepth.max(0);
   const grad = attribute('aGrad', 'vec2');
   const dome = attribute('aDome', 'float');
   const baseNormal = attribute('aNormal', 'vec3');
 
   // --- 1) height profile, applied only on the dome (aDome = 1) ---
   const s = depth.mul(float(2).sub(depth)).max(1e-5).sqrt();
-  const roundProfile = opts.profile === 'round';
   const heightProfile = roundProfile ? s : depth;
   const height = uPeak.mul(heightProfile).mul(dome);
 

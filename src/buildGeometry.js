@@ -47,6 +47,10 @@ import { gpuBlurRegionPositions } from './gpuSigilize.js';
  * @param {number}  [opts.referenceCullMin] - keep points with dist > this value
  * @param {number}  [opts.fieldMergeBlendScale=8] - fieldSmooth divisor for fill implicit blend
  * @param {number}  [opts.fieldDepthBlendScale=6] - fieldSmooth divisor for boundary depth blend
+ * @param {'plateau'|'carve'} [opts.relief='plateau'] - boundary depth profile. Plateau clamps
+ *   depth at 1 once edgeFalloff is reached; carve keeps rising with rim distance so wide
+ *   junctions become smooth peaks with sharp medial ridges (CNC V-carve style).
+ * @param {number}  [opts.reliefRange=6] - carve depth cap, in multiples of edgeFalloff
  * @param {number}  [opts.heightSmoothWeight=0.5] - influence of each height blur pass
  * @param {'cpu'}    [opts.fieldBackend='cpu'] - sync builds always use CPU field rasterization
  * @returns {BufferGeometry}
@@ -206,10 +210,14 @@ function regionToGeometry(region, field, prepared, opts) {
   const depthMode = opts.depthMode ?? 'boundary';
   if (depthMode === 'boundary') {
     const falloff = prepared.boundaryFalloff ?? opts.edgeFalloff ?? threshold;
-    const heightSmooth = Math.max(0, Math.floor(opts.heightSmooth ?? 0));
-    const depthScale = Math.max(1, opts.fieldDepthBlendScale ?? 6);
-    const heightSmoothWeight = opts.heightSmoothWeight ?? 0.5;
-    applyBoundaryDepth(region, falloff, heightSmooth, field, threshold, fieldSmooth, depthScale, heightSmoothWeight);
+    applyBoundaryDepth(region, falloff, field, threshold, {
+      heightSmooth: Math.max(0, Math.floor(opts.heightSmooth ?? 0)),
+      heightSmoothWeight: opts.heightSmoothWeight ?? 0.5,
+      fieldSmooth,
+      depthBlendScale: Math.max(1, opts.fieldDepthBlendScale ?? 6),
+      relief: opts.relief ?? 'plateau',
+      reliefRange: opts.reliefRange ?? 6,
+    });
   } else if (sigilize > 0) {
     resampleCenterlineDepth(region, field, threshold);
   }
@@ -263,7 +271,8 @@ function blurRegionPositions(region, iterations, weight) {
   }
 }
 
-function applyBoundaryDepth(region, falloff, heightSmoothPasses, field, threshold, fieldSmooth, depthBlendScale, heightSmoothWeight) {
+function applyBoundaryDepth(region, falloff, field, threshold, opts) {
+  const { heightSmooth, heightSmoothWeight, fieldSmooth, depthBlendScale, relief, reliefRange } = opts;
   const { positions, depth, grad, boundary, count, indices } = region;
   if (!boundary || boundary.length === 0) {
     depth.fill(1);
@@ -272,6 +281,10 @@ function applyBoundaryDepth(region, falloff, heightSmoothPasses, field, threshol
   }
 
   const width = Math.max(1e-6, falloff);
+  const carve = relief === 'carve';
+  // Carve keeps depth rising past the falloff so wide junctions turn into peaks
+  // (sharp ridges along the medial axis); plateau clamps at 1 like a flat mesa.
+  const cap = carve ? width * Math.max(1, reliefRange ?? 6) : width;
   const bfield = makeBoundaryField(positions, boundary, width);
   const depthBlend = fieldSmooth > 0 ? Math.min(1, fieldSmooth / depthBlendScale) : 0;
   const pinned = boundaryVertexMask(boundary, count);
@@ -279,17 +292,24 @@ function applyBoundaryDepth(region, falloff, heightSmoothPasses, field, threshol
   for (let i = 0; i < count; i++) {
     const x = positions[i * 3];
     const y = positions[i * 3 + 1];
-    let d = Math.min(1, boundaryDistance(x, y, bfield, width) / width);
+    let d = boundaryDistance(x, y, bfield, cap) / width;
+    if (!carve) d = Math.min(1, d);
     if (depthBlend > 0 && field?.depth) {
-      const fd = field.depth(x, y, threshold);
-      d = Math.min(d, d * (1 - depthBlend) + fd * depthBlend);
+      // The field blend softens merge seams near the rim. Its source is a 0..1
+      // spine field, so above the rim band it would flatten carve peaks —
+      // fade it out as depth passes 1.
+      const blend = carve ? depthBlend * clamp01(2 - d) : depthBlend;
+      if (blend > 0) {
+        const fd = field.depth(x, y, threshold);
+        d = Math.min(d, d * (1 - blend) + fd * blend);
+      }
     }
     depth[i] = d;
   }
   pinBoundaryDepth(depth, pinned);
 
-  if (heightSmoothPasses > 0) {
-    smoothVertexScalar(depth, buildAdjacency(count, indices), heightSmoothPasses, clamp01(heightSmoothWeight ?? 0.5), pinned);
+  if (heightSmooth > 0) {
+    smoothVertexScalar(depth, buildAdjacency(count, indices), heightSmooth, clamp01(heightSmoothWeight ?? 0.5), pinned);
   }
 
   computeScalarGradient(positions, indices, depth, grad, count);
@@ -378,10 +398,10 @@ function makeBoundaryField(positions, boundary, falloff) {
 
   for (let s = 0; s < segments.length; s++) {
     const [ax, ay, bx, by] = segments[s];
-    const x0 = ix(Math.min(ax, bx) - falloff);
-    const x1 = ix(Math.max(ax, bx) + falloff);
-    const y0 = iy(Math.min(ay, by) - falloff);
-    const y1 = iy(Math.max(ay, by) + falloff);
+    const x0 = ix(Math.min(ax, bx));
+    const x1 = ix(Math.max(ax, bx));
+    const y0 = iy(Math.min(ay, by));
+    const y1 = iy(Math.max(ay, by));
     for (let j = y0; j <= y1; j++) {
       for (let i = x0; i <= x1; i++) {
         const k = key(i, j);
@@ -395,25 +415,47 @@ function makeBoundaryField(positions, boundary, falloff) {
   return { segments, buckets, minX, minY, cell, key, ix, iy };
 }
 
+/**
+ * Nearest-boundary distance, capped at `cap`. Cells are scanned in expanding
+ * Chebyshev rings; after ring r every unscanned segment is at least r*cell
+ * away, so the search stops as soon as the current best is within that bound.
+ */
 function boundaryDistance(x, y, field, cap) {
+  const { cell } = field;
   const cx = field.ix(x);
   const cy = field.iy(y);
+  const maxRing = Math.ceil(cap / cell) + 1;
   let best = cap * cap;
   const seen = new Set();
 
-  for (let j = cy - 1; j <= cy + 1; j++) {
-    for (let i = cx - 1; i <= cx + 1; i++) {
-      const list = field.buckets.get(field.key(i, j));
-      if (!list) continue;
-      for (let k = 0; k < list.length; k++) {
-        const si = list[k];
-        if (seen.has(si)) continue;
-        seen.add(si);
-        const s = field.segments[si];
-        const d2 = distToSegment2(x, y, s[0], s[1], s[2], s[3]);
-        if (d2 < best) best = d2;
+  const visit = (i, j) => {
+    const list = field.buckets.get(field.key(i, j));
+    if (!list) return;
+    for (let k = 0; k < list.length; k++) {
+      const si = list[k];
+      if (seen.has(si)) continue;
+      seen.add(si);
+      const s = field.segments[si];
+      const d2 = distToSegment2(x, y, s[0], s[1], s[2], s[3]);
+      if (d2 < best) best = d2;
+    }
+  };
+
+  for (let ring = 0; ring <= maxRing; ring++) {
+    if (ring === 0) {
+      visit(cx, cy);
+    } else {
+      for (let i = cx - ring; i <= cx + ring; i++) {
+        visit(i, cy - ring);
+        visit(i, cy + ring);
+      }
+      for (let j = cy - ring + 1; j <= cy + ring - 1; j++) {
+        visit(cx - ring, j);
+        visit(cx + ring, j);
       }
     }
+    const guard = ring * cell;
+    if (best <= guard * guard) break;
   }
 
   return Math.sqrt(best);

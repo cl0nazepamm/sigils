@@ -15,7 +15,7 @@ How the **sigils** CPU path maps stroke controls to generated geometry.
 | Normalized iso | `isoThreshold × fieldRangeMax` | Default iso ≈ **0.555** |
 | Filled marching squares | `fillRegion` | Sharp silhouette |
 | Sigilize | `blurRegionPositions` | Mesh adjacency position melt |
-| Boundary height | `applyBoundaryDepth` | Rim distance → `aDepth` |
+| Boundary height | `applyBoundaryDepth` | Rim distance → `aDepth`; `relief: 'carve'` leaves the ramp unclamped |
 | Height soften | `heightSmooth` | Blur on depth attribute |
 | Solidify | `solidify` | Base + walls + dome attrs |
 | Chrome shading | `createChromeMaterial` | TSL peak from `aDepth` |
@@ -50,6 +50,7 @@ const sigil = createSigil(stroke, {
 | Line thickness | `fieldRangeMax` / `thickness` | 6% of bounds |
 | Iso threshold | `isoThreshold` | 0.555 (with `fieldRangeMax`) |
 | Boundary falloff | `boundaryFalloffNorm` | 0.345 × range |
+| Relief | `relief` / `reliefRange` | `carve`, cap 6 × falloff |
 | Grid padding | `gridBuffer` | 1.5 × threshold |
 | Spiro stack | `spiroCopies` / `SPIRO` in helper | 1 |
 | Sigilize blur | `sigilize` | 0 |

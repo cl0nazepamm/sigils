@@ -208,6 +208,10 @@ export function emblemParamsToOptions(params = {}) {
     ...(params.referenceCullMin != null ? { referenceCullMin: params.referenceCullMin } : {}),
     ...(params.flatten != null ? { flatten: params.flatten } : {}),
     depthMode: params.depthMode ?? 'boundary',
+    // Modifier-style height is an unclamped rim-distance ramp, so carve is
+    // the faithful default here.
+    relief: params.relief ?? 'carve',
+    ...(params.reliefRange != null ? { reliefRange: params.reliefRange } : {}),
     ...(peakRaw != null ? { peakHeight: peakRaw / peakScale } : {}),
   };
 }

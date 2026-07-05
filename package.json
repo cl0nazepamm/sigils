@@ -16,6 +16,7 @@
     "chrome"
   ],
   "license": "MIT",
+  "author": "vaticanshadow",
   "main": "src/index.js",
   "module": "src/index.js",
   "types": "src/index.d.ts",
@@ -28,6 +29,7 @@
   ],
   "sideEffects": false,
   "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\"",
     "example": "vite",
     "build:example": "vite build"
   },

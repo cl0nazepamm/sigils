@@ -12,7 +12,9 @@
     "extrudeBase": 0.08,
     "gridBuffer": null,
     "flatten": true,
-    "depthMode": "boundary"
+    "depthMode": "boundary",
+    "relief": "carve",
+    "reliefRange": 6
   },
   "look": {
     "peakHeight": 404.7418212890625,
