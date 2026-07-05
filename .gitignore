@@ -9,3 +9,6 @@ debug-*.png
 .agents/
 .codex/
 .claude/
+
+# local working scratch (never distributed)
+sigilizer/
