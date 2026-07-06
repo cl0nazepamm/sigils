@@ -87,6 +87,9 @@ export function createChromeMaterial(opts = {}) {
   material.flatShading = false;
 
   material.sigilUniforms = { peakHeight: uPeak, roughness: uRough };
+  material.userData.sigil = {
+    profile: opts.profile ?? 'linear',
+  };
   return material;
 }
 
