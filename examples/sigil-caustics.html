@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sigil Caustics</title>
+    <link rel="icon" href="data:,">
+    <style>
+        :root {
+            --ink: #f7f0df;
+            --muted: #b5aa91;
+            --panel: rgba(18, 17, 13, 0.76);
+            --panel-hard: rgba(7, 7, 5, 0.9);
+            --line: rgba(247, 240, 223, 0.18);
+            --hot: #ffd46a;
+            --steel: #9fd0ff;
+            --warning: #ff936a;
+        }
+
+        * { box-sizing: border-box; }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at 20% 12%, rgba(159, 208, 255, 0.22), transparent 30%),
+                radial-gradient(circle at 78% 28%, rgba(255, 212, 106, 0.18), transparent 32%),
+                linear-gradient(135deg, #050604 0%, #15100b 48%, #07090a 100%);
+            color: var(--ink);
+            font-family: "Bahnschrift", "DIN Condensed", "Segoe UI", sans-serif;
+        }
+
+        button,
+        input,
+        select { font: inherit; }
+
+        .app {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 360px;
+            gap: 18px;
+            padding: 18px;
+        }
+
+        .viewport-shell {
+            position: relative;
+            min-width: 0;
+            min-height: 0;
+            border: 1px solid var(--line);
+            border-radius: 28px;
+            overflow: hidden;
+            background:
+                linear-gradient(120deg, rgba(255, 212, 106, 0.07), transparent 28%),
+                linear-gradient(180deg, #0b0c0b, #050505);
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+        }
+
+        #viewport { position: absolute; inset: 0; }
+
+        #viewport canvas {
+            width: 100% !important;
+            height: 100% !important;
+            display: block;
+        }
+
+        .readout {
+            position: absolute;
+            left: 18px;
+            bottom: 18px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            pointer-events: none;
+        }
+
+        .chip {
+            padding: 8px 11px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.46);
+            color: var(--ink);
+            font-family: "Cascadia Mono", "Consolas", monospace;
+            font-size: 11px;
+            letter-spacing: 0.03em;
+            backdrop-filter: blur(14px);
+        }
+
+        .panel {
+            position: relative;
+            min-width: 0;
+            min-height: 0;
+            padding: 22px;
+            border: 1px solid var(--line);
+            border-radius: 28px;
+            background:
+                linear-gradient(160deg, rgba(255, 212, 106, 0.08), transparent 34%),
+                linear-gradient(180deg, var(--panel), var(--panel-hard));
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 24px 70px rgba(0, 0, 0, 0.42);
+            overflow: auto;
+        }
+
+        .eyebrow {
+            margin: 0 0 10px;
+            color: var(--hot);
+            font-family: "Cascadia Mono", "Consolas", monospace;
+            font-size: 11px;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            margin: 0;
+            max-width: 10ch;
+            font-size: clamp(46px, 7vw, 78px);
+            line-height: 0.82;
+            letter-spacing: -0.07em;
+            text-transform: uppercase;
+        }
+
+        .intro {
+            margin: 18px 0 22px;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.45;
+        }
+
+        .section {
+            padding: 17px 0;
+            border-top: 1px solid var(--line);
+        }
+
+        .section-title {
+            margin: 0 0 13px;
+            color: var(--steel);
+            font-family: "Cascadia Mono", "Consolas", monospace;
+            font-size: 11px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .control {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 7px 12px;
+            align-items: center;
+            margin: 13px 0;
+        }
+
+        .control label { color: var(--ink); font-size: 13px; }
+
+        .control output {
+            color: var(--muted);
+            font-family: "Cascadia Mono", "Consolas", monospace;
+            font-size: 11px;
+        }
+
+        input[type="range"] {
+            grid-column: 1 / -1;
+            width: 100%;
+            accent-color: var(--hot);
+        }
+
+        .button-row {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 9px;
+        }
+
+        .button-row.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+        button {
+            min-height: 38px;
+            border: 1px solid rgba(255, 255, 255, 0.17);
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.07);
+            color: var(--ink);
+            cursor: pointer;
+            transition: transform 150ms ease, border-color 150ms ease, background 150ms ease;
+        }
+
+        button:hover,
+        button:focus-visible {
+            border-color: rgba(255, 212, 106, 0.72);
+            background: rgba(255, 212, 106, 0.12);
+            outline: none;
+            transform: translateY(-1px);
+        }
+
+        button.active {
+            border-color: rgba(255, 212, 106, 0.8);
+            background: rgba(255, 212, 106, 0.19);
+        }
+
+        .status {
+            margin-top: 14px;
+            min-height: 42px;
+            color: var(--muted);
+            font-family: "Cascadia Mono", "Consolas", monospace;
+            font-size: 11px;
+            line-height: 1.35;
+        }
+
+        .status.error { color: var(--warning); }
+
+        @media (max-width: 920px) {
+            body { overflow: auto; }
+            .app {
+                min-height: 100%;
+                grid-template-columns: 1fr;
+                grid-template-rows: minmax(58vh, 1fr) auto;
+            }
+            .panel { overflow: visible; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            button { transition: none; }
+        }
+    </style>
+</head>
+<body>
+    <main class="app">
+        <section class="viewport-shell" aria-label="GPU caustic viewport">
+            <div id="viewport"></div>
+            <div class="readout" aria-live="polite">
+                <div class="chip">GPU <span id="samples">idle</span></div>
+                <div class="chip" id="backend">WebGPU pending</div>
+                <div class="chip">caustic photons <span id="photonReadout">0</span></div>
+            </div>
+        </section>
+
+        <aside class="panel">
+            <p class="eyebrow">Pure-WebGPU compute</p>
+            <h1>Sigil caustics</h1>
+            <p class="intro">
+                Photon caustics computed entirely on the GPU: a compute pass emits photons off the
+                metal, reflects them onto the floor, and atomic-splats energy into a density grid;
+                more compute passes density-estimate, auto-expose, bloom and tonemap into a storage
+                texture the floor samples. Millions of photons per frame, realtime.
+            </p>
+
+            <div class="section">
+                <p class="section-title">Caustic pass</p>
+                <div class="control">
+                    <label for="causticStrength">Strength</label>
+                    <output id="causticStrengthValue">2.20</output>
+                    <input id="causticStrength" type="range" min="0" max="5" step="0.01" value="2.2">
+                </div>
+                <div class="control">
+                    <label for="causticWidth">Softness</label>
+                    <output id="causticWidthValue">0.90</output>
+                    <input id="causticWidth" type="range" min="0.25" max="2.5" step="0.01" value="0.9">
+                </div>
+                <div class="control">
+                    <label for="causticBloom">Bloom</label>
+                    <output id="causticBloomValue">0.70</output>
+                    <input id="causticBloom" type="range" min="0" max="2" step="0.01" value="0.7">
+                </div>
+                <div class="control">
+                    <label for="photonBudget">Photons / frame</label>
+                    <output id="photonBudgetValue">300000</output>
+                    <input id="photonBudget" type="range" min="20000" max="2000000" step="20000" value="300000">
+                </div>
+                <div class="button-row three">
+                    <button type="button" data-metal="chrome" class="active">Chrome</button>
+                    <button type="button" data-metal="gold">Gold</button>
+                    <button type="button" data-metal="copper">Copper</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <p class="section-title">Scene</p>
+                <div class="control">
+                    <label for="lightRake">Light rake</label>
+                    <output id="lightRakeValue">-2.20</output>
+                    <input id="lightRake" type="range" min="-4" max="4" step="0.01" value="-2.2">
+                </div>
+                <div class="control">
+                    <label for="lightHeight">Light height</label>
+                    <output id="lightHeightValue">3.40</output>
+                    <input id="lightHeight" type="range" min="1.6" max="6" step="0.01" value="3.4">
+                </div>
+                <div class="control">
+                    <label for="metalRoughness">Metal roughness</label>
+                    <output id="metalRoughnessValue">0.035</output>
+                    <input id="metalRoughness" type="range" min="0" max="0.18" step="0.001" value="0.035">
+                </div>
+            </div>
+
+            <div class="section">
+                <p class="section-title">Render</p>
+                <div class="control">
+                    <label for="exposure">Exposure</label>
+                    <output id="exposureValue">1.15</output>
+                    <input id="exposure" type="range" min="0.25" max="3" step="0.01" value="1.15">
+                </div>
+                <div class="button-row">
+                    <button id="resetAccum" type="button">Rebake</button>
+                    <button id="pauseTrace" type="button">Hide caustics</button>
+                </div>
+            </div>
+
+            <div id="status" class="status">Initializing WebGPU renderer...</div>
+        </aside>
+    </main>
+    <script type="module" src="./sigil-caustics.js"></script>
+</body>
+</html>
