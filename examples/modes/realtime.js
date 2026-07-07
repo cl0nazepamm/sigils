@@ -12,7 +12,7 @@ import { bindRightDragOrbit } from '../shared/orbit.js';
 import { mountControlPanel, syncControlPanelToState } from '../shared/controlPanel.js';
 import { DEMO_CONTROL_SPECS } from '../shared/demoControlSpecs.js';
 import { bindGlbExportButton } from '../shared/glbExport.js';
-import { createCausticEngine, causticReceiverWall } from '../vendor/caustic_engine.js';
+import { createPhotonRig } from '../shared/photonRig.js';
 import {
   activeBuildPaths,
   buildOptionsForSession,
@@ -87,10 +87,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     },
     onLive: (key) => {
       updateChromeMaterial(sigilMaterial, chromeOptionsFromState(state));
-      if (photonActive && caustic) {
-        if (key === 'peak') uploadPhotonCaster();
-        if (key === 'roughness') caustic.setRoughness(state.roughness);
-      }
+      photon.handleLive(key);
       if (state.previewStripOnly && key === 'peak') refreshPreview();
     },
     defaults: defaultState,
@@ -133,125 +130,15 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
 
   bindGlbExportButton(ui.exportGlb, { strokes, state, renderer, signal });
 
-  // Photon blast: GPU caustics thrown off the drawn sigil onto a backdrop wall
-  // BEHIND it. The sigil is drawn on the z=0 plane facing +Z, so reflected
-  // photons travel toward -Z — a floor under the sigil caught almost nothing.
-  // Wall distance sets the caustic throw: landings scale with the sigil->wall
-  // gap, so a close wall keeps the photons hugging the silhouette.
-  const WALL = { z: -0.5, y: 0, width: 20, height: 12 };
-  let caustic = null, causticWall = null, keyLight = null, photonActive = false;
-
-  // The photon light lives on a sphere around the sigil's centre: orbit swings
-  // it across the front, lift raises it, range pulls it away. Glow drives both
-  // the caustic strength and the key light so the backdrop follows the beam.
-  // Defaults rake the light from the side: a head-on light reflects FORWARD off
-  // the sigil (away from the back wall) — only steep slopes and stroke side
-  // walls throw photons backward, so grazing angles are what read on the wall.
-  const PHOTON_DEFAULTS = {
-    lightOrbit: 58, lightLift: 10, lightRange: 3.4,
-    reach: 0.9, glow: 4, beamWidth: 0.7, bloom: 1.0,
-  };
-  const photonState = { ...PHOTON_DEFAULTS };
-  const PHOTON_CONTROL_SPECS = [
-    { type: 'section', label: 'Photon light' },
-    { key: 'lightOrbit', label: 'Orbit', type: 'range', min: -80, max: 80, step: 1, int: true, live: true },
-    { key: 'lightLift', label: 'Lift', type: 'range', min: -8, max: 70, step: 1, int: true, live: true },
-    { key: 'lightRange', label: 'Range', type: 'range', min: 1.8, max: 6, step: 0.05, live: true },
-    { key: 'reach', label: 'Reach', type: 'range', min: 0.3, max: 6, step: 0.05, live: true },
-    { key: 'glow', label: 'Glow', type: 'range', min: 0, max: 6, step: 0.05, live: true },
-    { key: 'beamWidth', label: 'Width', type: 'range', min: 0.15, max: 2, step: 0.05, live: true },
-    { key: 'bloom', label: 'Bloom', type: 'range', min: 0, max: 2, step: 0.05, live: true },
-  ];
-  const photonPanel = panelRoot.querySelector('#photon-controls');
-  mountControlPanel(photonPanel, PHOTON_CONTROL_SPECS, photonState, {
-    onLive: () => applyPhotonState(),
-    defaults: { ...PHOTON_DEFAULTS },
-    signal,
+  // Photon blast: GPU caustics thrown off the committed sigil onto a backdrop
+  // wall. The rig owns its own control panel + light; the mode just drives its
+  // lifecycle hooks (syncCaster on rebuild/clear, handleLive on live edits).
+  const photon = createPhotonRig(ctx, {
+    sigilMesh, state, signal,
+    button: ui.photon,
+    panel: panelRoot.querySelector('#photon-controls'),
+    setStatus: (msg) => { statsEl.textContent = msg; },
   });
-
-  function applyPhotonState() {
-    if (!caustic) return;
-    const az = THREE.MathUtils.degToRad(photonState.lightOrbit);
-    const el = THREE.MathUtils.degToRad(photonState.lightLift);
-    const r = photonState.lightRange;
-    const x = Math.sin(az) * Math.cos(el) * r;
-    const y = Math.sin(el) * r;
-    const z = Math.cos(az) * Math.cos(el) * r; // always in front of the sigil
-    caustic.setLight(x, y, z);
-    caustic.setStrength(photonState.glow);
-    caustic.setSoftness(photonState.beamWidth);
-    caustic.setBloom(photonState.bloom);
-    // Reach = throw distance (world units) where a photon's weight halves;
-    // photons landing much farther than the reach fade out instead of smearing.
-    caustic.setThrowFalloff(1 / (photonState.reach * photonState.reach));
-    keyLight.position.set(x, y, z);
-    keyLight.intensity = 12 * photonState.glow;
-  }
-
-  function ensurePhotonRig() {
-    if (caustic) return;
-    caustic = createCausticEngine({
-      THREE, renderer,
-      grid: 1024, // wider receiver -> keep caustic texel density up
-      // 1M grid cells over a 20x12 wall: the engine's 3M default converges at
-      // ~3 photons/cell and leaves visible speckle. Emit is sub-ms, so buy
-      // smoothness with volume: ~200 photons/cell. Fixed-point headroom is
-      // fine — the u32 grid saturates around ~1e9 photons into one hot cell.
-      targetPhotons: 200_000_000,
-      receiver: causticReceiverWall({ z: WALL.z, y: WALL.y, width: WALL.width, height: WALL.height }),
-    });
-    caustic.setRoughness(state.roughness);
-    caustic.setPhotonBudget(2_000_000);
-    // The wall sits behind the sigil in view: keep the additive overlay
-    // depth-tested so the sigil occludes it instead of the caustic glowing through.
-    caustic.overlayMesh.material.depthTest = true;
-    caustic.overlayMesh.visible = false; // renderOrder 1000 -> composites last in-scene
-    scene.add(caustic.overlayMesh);
-
-    // Unlit pure black: the wall is a canvas for the additive caustic overlay,
-    // not a lit surface — env/key light must not wash it grey.
-    causticWall = new THREE.Mesh(
-      new THREE.PlaneGeometry(WALL.width, WALL.height),
-      new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide }),
-    );
-    causticWall.position.set(0, WALL.y, WALL.z - 0.01);
-    causticWall.visible = false;
-    scene.add(causticWall);
-
-    keyLight = new THREE.PointLight(0xffffff, 40, 40, 1.4);
-    keyLight.visible = false;
-    scene.add(keyLight);
-
-    applyPhotonState();
-    if (typeof window !== 'undefined') { window.__caustic = caustic; window.__keyLight = keyLight; window.__causticWall = causticWall; }
-  }
-
-  function uploadPhotonCaster() {
-    const verts = sigilMesh.geometry.getAttribute('position')?.count ?? 0;
-    if (verts <= 0 || !caustic) return false;
-    sigilMesh.updateMatrixWorld(true);
-    caustic.setCasterMesh(sigilMesh);
-    caustic.markDirty();
-    return true;
-  }
-
-  function setPhotonActive(on) {
-    if (on) {
-      const verts = sigilMesh.geometry.getAttribute('position')?.count ?? 0;
-      if (verts <= 0) { statsEl.textContent = 'draw a sigil first'; return; }
-      ensurePhotonRig();
-      if (!uploadPhotonCaster()) return;
-      caustic.overlayMesh.visible = causticWall.visible = keyLight.visible = true;
-    } else if (caustic) {
-      caustic.overlayMesh.visible = causticWall.visible = keyLight.visible = false;
-    }
-    photonActive = on;
-    photonPanel.hidden = !on;
-    ui.photon.classList.toggle('active', on);
-    ui.photon.textContent = on ? 'Photon off' : 'Photon blast';
-  }
-
-  ui.photon.addEventListener('click', () => setPhotonActive(!photonActive), { signal });
 
   function replaceChromeMaterial() {
     const previous = sigilMaterial;
@@ -259,7 +146,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     sigilMesh.material = sigilMaterial;
     previewMesh.material = sigilMaterial;
     previous.dispose();
-    if (photonActive && caustic) uploadPhotonCaster();
+    photon.refreshCaster();
   }
 
   function applyDrawDefaults() {
@@ -308,7 +195,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     const old = sigilMesh.geometry;
     sigilMesh.geometry = new THREE.BufferGeometry();
     old.dispose();
-    if (photonActive) setPhotonActive(false);
+    photon.syncCaster(); // stay armed; hide the caustic while there's no caster
     updateVertexCount();
   }
 
@@ -385,7 +272,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
         clearPreviewMesh();
         vertexCount = 0;
         blendBackend = '—';
-        if (photonActive) setPhotonActive(false);
+        photon.syncCaster(); // stay armed; hide the caustic while there's no caster
         return;
       }
 
@@ -416,7 +303,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
       holdPreviewUntilRebuild = false;
       if (!drawing) clearPreviewMesh();
       updateVertexCount();
-      if (photonActive && caustic) uploadPhotonCaster();
+      photon.syncCaster();
     } catch (error) {
       lastError = error?.message ?? String(error);
       console.error('sigils rebuild failed', error);
@@ -517,7 +404,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
 
   ctx.setAnimationLoop(() => {
     controls.update();
-    if (photonActive && caustic) caustic.update(); // GPU compute passes before the scene draw
+    photon.update(); // GPU compute passes before the scene draw
     renderer.render(scene, camera);
 
     const now = performance.now();
@@ -541,9 +428,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     scene.remove(sigilMesh, previewMesh, guideGroup);
     sigilMesh.geometry.dispose();
     previewMesh.geometry.dispose();
-    if (caustic) { scene.remove(caustic.overlayMesh); caustic.dispose(); }
-    if (causticWall) { scene.remove(causticWall); causticWall.geometry.dispose(); causticWall.material.dispose(); }
-    if (keyLight) scene.remove(keyLight);
+    photon.dispose();
     ctx.setAnimationLoop(null);
   };
 }

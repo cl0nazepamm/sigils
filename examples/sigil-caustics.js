@@ -1,14 +1,16 @@
 // sigil-caustics.js — throw GPU photon caustics off a real chrome sigil.
 //
 // Builds a sigil mesh with the sigils library, then hands its geometry to the
-// vendored speedball caustic engine in MESH-emission mode: photons are emitted
-// off the actual sigil surface, reflected off the raking light, and splatted
-// onto the floor. Same engine as caustics.html, different caster.
+// speedball caustic engine (speedball-gi/caustics) in MESH-emission mode:
+// photons are emitted off the actual sigil surface, reflected off the raking
+// light, and splatted onto the floor. Same engine as caustics.html, different
+// caster.
 
 import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createSigil, spirograph } from '../src/index.js';
-import { createCausticEngine } from './vendor/caustic_engine.js';
+import { createCausticEngine } from 'speedball-gi/caustics';
+import { sigilCasterShaper } from './shared/sigilCasterShaper.js';
 
 const FLOOR = { width: 9, depth: 7 };
 
@@ -226,7 +228,7 @@ async function main() {
     createScene();
 
     caustic = createCausticEngine({ THREE, renderer });
-    caustic.setCasterMesh(sigilMesh); // MESH emission off the real sigil geometry
+    caustic.setCasterMesh(sigilMesh, { shaper: sigilCasterShaper(sigilMesh) }); // MESH emission off the real sigil geometry
     caustic.setMetal(state.metal);
     caustic.setLight(state.lightRake, state.lightHeight, 1.6);
     caustic.setSoftness(state.causticWidth);

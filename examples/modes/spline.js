@@ -23,6 +23,7 @@ import { mountControlPanel, syncControlPanelToState } from '../shared/controlPan
 import { DEMO_CONTROL_SPECS } from '../shared/demoControlSpecs.js';
 import { bindGlbExportButton } from '../shared/glbExport.js';
 import { bindRightDragOrbit } from '../shared/orbit.js';
+import { createPhotonRig } from '../shared/photonRig.js';
 import {
   buildOptionsForSession,
   committedBuildPaths,
@@ -65,7 +66,9 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
       <button id="undo" type="button">Undo</button>
       <button id="clear" type="button">Clear</button>
       <button id="export-glb" type="button">GLB</button>
+      <button id="photon" type="button">Photon blast</button>
     </div>
+    <div id="photon-controls" hidden></div>
   `;
   infoRoot.innerHTML = `<b>sigils · cv curves</b><br /><span id="stats">—</span><br /><span class="hint">click: place cv · first cv: close · dblclick/enter: commit · esc: cancel</span>`;
 
@@ -89,8 +92,9 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
       if (isDrawSettingKey(key)) return;
       scheduleRebuild();
     },
-    onLive: () => {
+    onLive: (key) => {
       updateChromeMaterial(sigilMaterial, chromeOptionsFromState(state));
+      photon.handleLive(key);
     },
     defaults: defaultState,
     signal,
@@ -146,10 +150,21 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     undo: panelRoot.querySelector('#undo'),
     clear: panelRoot.querySelector('#clear'),
     exportGlb: panelRoot.querySelector('#export-glb'),
+    photon: panelRoot.querySelector('#photon'),
   };
 
   bindGlbExportButton(ui.exportGlb, { strokes, state, renderer, signal });
   bindRightDragOrbit(ctx, { signal, getCamera: () => camera });
+
+  // Photon blast: GPU caustics thrown off the committed sigil (same rig as
+  // Freehand). The mode drives its hooks: syncCaster on rebuild/clear,
+  // handleLive on live edits, refreshCaster on a material swap.
+  const photon = createPhotonRig(ctx, {
+    sigilMesh, state, signal,
+    button: ui.photon,
+    panel: panelRoot.querySelector('#photon-controls'),
+    setStatus: (msg) => { statsEl.textContent = msg; },
+  });
 
   function worldPerPixel() {
     if (camera.isOrthographicCamera) {
@@ -166,6 +181,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     draftMesh.material = sigilMaterial;
     dragMesh.material = sigilMaterial;
     previous.dispose();
+    photon.refreshCaster();
   }
 
   function applyDrawDefaults() {
@@ -343,6 +359,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
         clearMesh(sigilMesh);
         clearMesh(dragMesh);
         blendBackend = '—';
+        photon.syncCaster(); // stay armed; hide the caustic while there's no caster
         return;
       }
 
@@ -372,6 +389,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
       } else {
         clearMesh(dragMesh);
       }
+      photon.syncCaster();
     } catch (error) {
       lastError = error?.message ?? String(error);
       console.error('sigils rebuild failed', error);
@@ -549,6 +567,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
   ctx.setAnimationLoop(() => {
     controls.update();
     scaleHandles();
+    photon.update(); // GPU compute passes before the scene draw
     renderer.render(scene, camera);
 
     const now = performance.now();
@@ -577,6 +596,7 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     sigilMesh.geometry.dispose();
     draftMesh.geometry.dispose();
     dragMesh.geometry.dispose();
+    photon.dispose();
     ctx.setAnimationLoop(null);
   };
 }

@@ -1,7 +1,8 @@
-// caustics.js — demo harness for the vendored GPU photon-caustic engine.
+// caustics.js — demo harness for the speedball GPU photon-caustic engine.
 //
-// The photon engine itself lives in the master speedball repo and is vendored
-// here at ./vendor/caustic_engine.js. This file is ONLY the demo: a rasterized
+// The photon engine lives in the master speedball repo and is imported from
+// the speedball-gi package (speedball-gi/caustics). This file is ONLY the
+// demo: a rasterized
 // chrome beauty scene (curved door + two wheels + floor + studio env), camera,
 // controls, and slider wiring. It creates the engine, feeds it the caster world
 // matrices + light, adds engine.overlayMesh to an overlay scene, and calls
@@ -9,7 +10,7 @@
 
 import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { createCausticEngine } from './vendor/caustic_engine.js';
+import { createCausticEngine } from 'speedball-gi/caustics';
 
 const FLOOR = { width: 9, depth: 7 };
 
@@ -268,8 +269,8 @@ async function main() {
     initCamera();
     createScene();
 
-    // Vendored engine from speedball. Feed it the caster world matrices + light,
-    // then just call update() each frame and render its overlay mesh.
+    // Speedball engine. Feed it the caster world matrices + light, then just
+    // call update() each frame and render its overlay mesh.
     caustic = createCausticEngine({ THREE, renderer });
     caustic.setCasterMatrices(doorMesh.matrixWorld, wheelGroups[0].matrixWorld, wheelGroups[1].matrixWorld);
     caustic.setMetal(state.metal);
@@ -285,7 +286,7 @@ async function main() {
     const observer = new ResizeObserver(() => resize());
     observer.observe(viewport);
 
-    setStatus('Pure-WebGPU compute caustics (engine vendored from speedball). Orbit the camera; the caustic re-bakes on the GPU when you move the light or metal.');
+    setStatus('Pure-WebGPU compute caustics (speedball-gi/caustics). Orbit the camera; the caustic re-bakes on the GPU when you move the light or metal.');
     renderer.setAnimationLoop(animate);
 }
 
