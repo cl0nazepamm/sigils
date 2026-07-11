@@ -24,25 +24,17 @@
 
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { BufferAttribute, BufferGeometry } from 'three';
-import { MeshBVH, acceleratedRaycast } from 'three-mesh-bvh';
-import {
-  buildSurfaceSigilGeometry,
-  buildSurfaceVineFieldGeometry,
-  createMeshIndex,
-} from '../../src/index.js';
+import { createMeshIndex } from '../../src/index.js';
 import { bindRightDragOrbit } from '../shared/orbit.js';
 import { bindUndoRedoKeys } from '../shared/hotkeys.js';
 import { bindMeshGlbExportButton } from '../shared/glbExport.js';
 import { createPathTraceRig } from '../shared/pathTraceRig.js';
 import { mountControlPanel, syncControlPanelToState } from '../shared/controlPanel.js';
 import { createInactiveTraceRigs, markUnsupported } from '../shared/unsupportedUi.js';
-import { loadDemoAsset, saveDemoAsset } from '../shared/demoPersistence.js';
+import { saveDemoAsset } from '../shared/demoPersistence.js';
 import {
   clampCvRadiusScale,
   cvRadiusScaleFromDrag,
-  MAX_CV_RADIUS_SCALE,
-  MIN_CV_RADIUS_SCALE,
 } from '../shared/strokeSession.js';
 import {
   cleanSurfaceStrokeRecords,
@@ -57,231 +49,35 @@ import {
   pickSurfaceCvControl,
   pickSurfaceStroke,
   restoreSurfaceStrokeEdit,
-  sampleSurfaceSpline,
   surfaceStrokeCopyCount,
   transformSurfaceCopySample,
   updateSurfaceSplineRecord,
 } from '../shared/surfaceStrokeSession.js';
+import {
+  SURFACE_DEFAULTS,
+  TARGET_ASSET_KEY,
+  snapshotTargetGeometry,
+} from './surface/store.js';
+import {
+  SURFACE_CONTROL_SPECS,
+  CONFORM_STEP,
+  HANDLE_RADIUS_PX,
+  PICK_RADIUS_PX,
+  RADIUS_PICK_TOLERANCE_PX,
+  TOUCH_HANDLE_RADIUS_PX,
+  TOUCH_PICK_RADIUS_PX,
+  TOUCH_RADIUS_TOLERANCE_PX,
+  STROKE_PICK_PAD_PX,
+  CLOSE_MIN_CVS,
+  DOUBLE_CLICK_WINDOW_MS,
+  DOUBLE_CLICK_SLOP_PX,
+  MAX_HISTORY,
+  NAVIGATION_PICK_DEBOUNCE_MS,
+} from './surface/config.js';
+import { createStrokePipeline } from './surface/strokePipeline.js';
+export { serializeStore, restoreStore } from './surface/store.js';
 
 export const meta = { id: 'surface', label: 'Paint on Mesh' };
-
-const SURFACE_DEFAULTS = {
-  drawTool: 'freehand',
-  cvRadiusScale: 1,
-  showActiveCvs: true,
-  guides: true,     // centerline overlays for selection / active stroke
-  surfaceBackend: 'welded',
-  manualMeshing: false, // separate per-stroke meshes until explicitly merged
-  width: 0.06,      // lateral half-width, world units
-  peak: 0.9,        // section height as a RATIO of width
-  // Pull the whole band into the mesh along −normal (fraction of peak / patch height).
-  // Lets seating depth be dialed without raising peak just to bury the underside.
-  conform: 0,
-  relief: 'round',  // section shape: carve (peaked) | plateau | round
-  thorns: 0,        // 0 = bare vine, 1 = bristling
-  spike: 1,         // thorn length in ornament units
-  wobble: 0.6,
-  melt: 0.39,       // molten field feel: weld gooeyness + section rounding
-  taper: 8,         // tip taper length in ornament units (field-length tips)
-  taperPower: 1.04, // tip profile exponent, field default: flowing tapers
-  res: 0.75,        // field resolution multiplier
-  flow: 3,          // smoothing passes on the painted line
-  mirror: false,    // captured per stroke with symmetry (like Drawing)
-  symmetry: 1,      // N-fold radial copies around the target center, per stroke
-  rough: 0,         // vine chrome roughness (0 = mirror; demo caps at 0.05)
-  patchRelief: 'round',
-  patchHeight: 0.08,   // absolute world-unit displacement, independent of width
-  patchFalloff: 0.4,   // fraction of the full stroke width
-  patchMelt: 12,       // seam-safe scalar relief smoothing
-  patchResolution: 0.5, // 0.5 preserves authored topology; higher values refine the field
-  patchTaper: 4,       // open-end taper length in half-width units
-  patchTaperPower: 1.15,
-  patchPolish: 10,     // shading-normal diffusion; positions stay untouched
-  targetColor: '#232328',
-  targetMetalness: 0.1,
-  targetRoughness: 0.85,
-  targetEnvIntensity: 1,
-};
-
-const TARGET_ASSET_KEY = 'paint-on-mesh-target-v1';
-
-function finiteTuple(value, size) {
-  return Array.isArray(value)
-    && value.length === size
-    && value.every(Number.isFinite)
-    ? value.slice()
-    : null;
-}
-
-function cleanSettings(value) {
-  const settings = {};
-  for (const [key, fallback] of Object.entries(SURFACE_DEFAULTS)) {
-    const saved = value?.[key];
-    settings[key] = typeof saved === typeof fallback
-      && (typeof saved !== 'number' || Number.isFinite(saved))
-      ? saved
-      : fallback;
-  }
-  return settings;
-}
-
-function snapshotAttribute(attribute) {
-  if (!attribute) return null;
-  if (!ArrayBuffer.isView(attribute.array)) {
-    const SourceArray = attribute.data?.array?.constructor ?? Float32Array;
-    const array = new SourceArray(attribute.count * attribute.itemSize);
-    const getters = ['getX', 'getY', 'getZ', 'getW'];
-    if (attribute.itemSize > getters.length) return null;
-    for (let i = 0; i < attribute.count; i++) {
-      for (let component = 0; component < attribute.itemSize; component++) {
-        array[i * attribute.itemSize + component] = attribute[getters[component]](i);
-      }
-    }
-    return { array, itemSize: attribute.itemSize, normalized: attribute.normalized };
-  }
-  return {
-    array: attribute.array.slice(),
-    itemSize: attribute.itemSize,
-    normalized: attribute.normalized,
-  };
-}
-
-function snapshotTargetGeometry(geometry) {
-  return {
-    position: snapshotAttribute(geometry.getAttribute('position')),
-    normal: snapshotAttribute(geometry.getAttribute('normal')),
-    index: snapshotAttribute(geometry.getIndex()),
-  };
-}
-
-function restoreTargetGeometry(snapshot) {
-  if (!snapshot?.position || !ArrayBuffer.isView(snapshot.position.array)) return null;
-  const geometry = new BufferGeometry();
-  geometry.setAttribute('position', new BufferAttribute(
-    snapshot.position.array, snapshot.position.itemSize, snapshot.position.normalized,
-  ));
-  if (snapshot.normal && ArrayBuffer.isView(snapshot.normal.array)) {
-    geometry.setAttribute('normal', new BufferAttribute(
-      snapshot.normal.array, snapshot.normal.itemSize, snapshot.normal.normalized,
-    ));
-  } else {
-    geometry.computeVertexNormals();
-  }
-  if (snapshot.index && ArrayBuffer.isView(snapshot.index.array)) {
-    geometry.setIndex(new BufferAttribute(
-      snapshot.index.array, snapshot.index.itemSize, snapshot.index.normalized,
-    ));
-  }
-  geometry.computeBoundingSphere();
-  return geometry;
-}
-
-/** JSON-safe Paint-on-Mesh state; dense target geometry lives in IndexedDB. */
-export function serializeStore(store = {}) {
-  const serialized = {
-    settings: cleanSettings(store.settings),
-    committed: cleanSurfaceStrokeRecords(store.committed),
-    redo: cleanSurfaceStrokeRecords(store.redo),
-  };
-  for (const [key, size] of [
-    ['targetScale3', 3],
-    ['targetQuaternion', 4],
-    ['targetPosition', 3],
-  ]) {
-    const tuple = finiteTuple(store[key], size);
-    if (tuple) serialized[key] = tuple;
-  }
-  if (store.targetAssetKey === TARGET_ASSET_KEY) serialized.targetAssetKey = TARGET_ASSET_KEY;
-  return serialized;
-}
-
-/** Restore portable state and, when present, the separately stored dense mesh. */
-export async function restoreStore(value = {}) {
-  const store = serializeStore(value);
-  if (store.targetAssetKey === TARGET_ASSET_KEY) {
-    try {
-      const snapshot = await loadDemoAsset(TARGET_ASSET_KEY);
-      store.targetGeometry = restoreTargetGeometry(snapshot);
-      if (!store.targetGeometry) delete store.targetAssetKey;
-    } catch (error) {
-      console.warn('Paint-on-Mesh target restore failed', error);
-      delete store.targetAssetKey;
-    }
-  }
-  return store;
-}
-
-const SURFACE_CONTROL_SPECS = [
-  { type: 'section', label: 'Main', main: true },
-  { key: 'width', label: 'Width', type: 'range', min: 0.002, max: 0.06, step: 0.001, main: true },
-  // Peak rides the width as a RATIO: the extractor artifacts live in the
-  // aspect (peak/width), so tangling the two keeps every size in the safe
-  // band — thin wires get low peaks, big wires tall ones, automatically.
-  // Floor is low enough for shallow mesh carves; the field budget still
-  // coarsens if an extreme aspect would otherwise fragment.
-  { key: 'peak', label: 'Peak ratio', type: 'range', min: 0.05, max: 3, step: 0.01, forge: 'welded', main: true },
-  { key: 'patchHeight', label: 'Height', type: 'range', min: 0, max: 0.2, step: 0.001, forge: 'patch', main: true },
-  { key: 'conform', label: 'Conform', type: 'range', min: 0, max: 1.5, step: 0.01, main: true },
-  { key: 'res', label: 'Resolution', type: 'range', min: 0.5, max: 4, step: 0.05, forge: 'welded', main: true },
-  { key: 'patchResolution', label: 'Resolution', type: 'range', min: 0.25, max: 4, step: 0.05, forge: 'patch', main: true },
-
-  { type: 'section', label: 'Geometry' },
-  { key: 'surfaceBackend', label: 'Backend', type: 'select', options: [['welded', 'Welded volume'], ['patch', 'Surface patch']] },
-  { key: 'manualMeshing', label: 'Manual meshing', type: 'check' },
-
-  { type: 'section', label: 'Stroke' },
-  { key: 'symmetry', label: 'Symmetry', type: 'range', min: 1, max: 12, step: 1, int: true },
-  { key: 'mirror', label: 'Mirror', type: 'check' },
-  { key: 'flow', label: 'Flow', type: 'range', min: 0, max: 10, step: 1, int: true },
-  { key: 'cvRadiusScale', label: 'New point width ×', type: 'range', min: MIN_CV_RADIUS_SCALE, max: MAX_CV_RADIUS_SCALE, step: 0.01, forge: 'surface-cv' },
-  { key: 'showActiveCvs', label: 'Show curve points', type: 'check', forge: 'surface-cv' },
-  { key: 'guides', label: 'Curves', type: 'check' },
-
-  { type: 'section', label: 'Welded volume', forge: 'welded' },
-  { key: 'relief', label: 'Relief', type: 'select', options: [['carve', 'carve (peaked)'], ['plateau', 'plateau'], ['round', 'round']] },
-  { key: 'melt', label: 'Melt', type: 'range', min: 0, max: 1, step: 0.01 },
-  { key: 'taper', label: 'Taper length', type: 'range', min: 1, max: 8, step: 0.1 },
-  { key: 'taperPower', label: 'Taper shape', type: 'range', min: 0.3, max: 2.4, step: 0.02 },
-  { key: 'wobble', label: 'Wobble', type: 'range', min: 0, max: 1, step: 0.01 },
-
-  { type: 'section', label: 'Thorns', forge: 'welded' },
-  { key: 'thorns', label: 'Density', type: 'range', min: 0, max: 1, step: 0.01 },
-  { key: 'spike', label: 'Spike', type: 'range', min: 1, max: 7, step: 0.1 },
-
-  { type: 'section', label: 'Surface patch', forge: 'patch' },
-  { key: 'patchRelief', label: 'Relief', type: 'select', options: [['round', 'round (liquid)'], ['carve', 'carve (peaked)'], ['plateau', 'plateau']] },
-  { key: 'patchFalloff', label: 'Falloff', type: 'range', min: 0.1, max: 1, step: 0.01 },
-  { key: 'patchMelt', label: 'Melt', type: 'range', min: 0, max: 40, step: 1, int: true },
-  { key: 'patchTaper', label: 'Taper length', type: 'range', min: 0, max: 8, step: 0.1 },
-  { key: 'patchTaperPower', label: 'Taper shape', type: 'range', min: 0.3, max: 2.4, step: 0.05 },
-  { key: 'patchPolish', label: 'Liquid polish', type: 'range', min: 0, max: 16, step: 1, int: true },
-
-  { type: 'details', label: 'MATERIAL OVERRIDES' },
-  { key: 'targetColor', label: 'Base color', type: 'color', live: true },
-  { key: 'targetMetalness', label: 'Metalness', type: 'range', min: 0, max: 1, step: 0.01, live: true },
-  { key: 'targetRoughness', label: 'Roughness', type: 'range', min: 0, max: 1, step: 0.01, live: true },
-
-  { type: 'section', label: 'Chrome' },
-  { key: 'rough', label: 'Rough', type: 'range', min: 0, max: 0.05, step: 0.001, live: true },
-];
-
-// world-unit resample step for conformed strokes; dense enough for the
-// smallest brush the panel offers, independent of the brush itself so width
-// changes never force a re-conform of committed strokes
-const CONFORM_STEP = 0.012;
-const MAX_CONFORM_POINTS = 300;
-const HANDLE_RADIUS_PX = 6;
-const PICK_RADIUS_PX = 15;
-const RADIUS_PICK_TOLERANCE_PX = 8;
-const TOUCH_HANDLE_RADIUS_PX = 12;
-const TOUCH_PICK_RADIUS_PX = 22;
-const TOUCH_RADIUS_TOLERANCE_PX = 14;
-const STROKE_PICK_PAD_PX = 7;
-const CLOSE_MIN_CVS = 3;
-const DOUBLE_CLICK_WINDOW_MS = 600;
-const DOUBLE_CLICK_SLOP_PX = 8;
-const MAX_HISTORY = 64;
-const NAVIGATION_PICK_DEBOUNCE_MS = 180;
 
 export function mount(ctx, {
   panelRoot,
@@ -526,275 +322,27 @@ export function mount(ctx, {
   let radiusSliderEdit = null;
   let radiusSliderTimer = 0;
 
-  /* ------------------------------------------------------------ conform */
-
-  function resampleRaw(raw, step, maxPoints) {
-    if (raw.length < 2) return null;
-    const cum = [0];
-    for (let i = 1; i < raw.length; i++) {
-      cum.push(cum[i - 1] + Math.hypot(
-        raw[i].p[0] - raw[i - 1].p[0],
-        raw[i].p[1] - raw[i - 1].p[1],
-        raw[i].p[2] - raw[i - 1].p[2],
-      ));
-    }
-    const total = cum[cum.length - 1];
-    if (total < step * 2) return null;
-    const count = Math.min(maxPoints, Math.max(6, Math.round(total / step) + 1));
-    const out = [];
-    let seg = 0;
-    for (let i = 0; i < count; i++) {
-      const s = (total * i) / (count - 1);
-      while (seg < raw.length - 2 && cum[seg + 1] < s) seg++;
-      const span = cum[seg + 1] - cum[seg];
-      const t = span > 0 ? (s - cum[seg]) / span : 0;
-      const a = raw[seg], b = raw[seg + 1];
-      out.push({
-        p: [0, 1, 2].map((k) => a.p[k] + (b.p[k] - a.p[k]) * t),
-        n: [0, 1, 2].map((k) => a.n[k] + (b.n[k] - a.n[k]) * t),
-        radiusScale: clampCvRadiusScale(
-          (a.radiusScale ?? 1) + ((b.radiusScale ?? 1) - (a.radiusScale ?? 1)) * t,
-        ),
-      });
-    }
-    return out;
-  }
-
-  /** Laplacian smooth of positions, endpoints pinned. */
-  function smoothPositions(pts, iterations, weight = 0.55) {
-    for (let pass = 0; pass < iterations; pass++) {
-      const prev = pts.map((pt) => pt.p);
-      for (let i = 1; i < pts.length - 1; i++) {
-        pts[i] = {
-          ...pts[i],
-          p: [0, 1, 2].map((k) =>
-            prev[i][k] + ((prev[i - 1][k] + prev[i + 1][k]) * 0.5 - prev[i][k]) * weight),
-        };
-      }
-    }
-  }
-
-  function smoothNormals(pts, iterations) {
-    for (let pass = 0; pass < iterations; pass++) {
-      const prev = pts.map((pt) => pt.n);
-      for (let i = 1; i < pts.length - 1; i++) {
-        const n = [0, 1, 2].map((k) => prev[i - 1][k] + prev[i][k] * 2 + prev[i + 1][k]);
-        const l = Math.hypot(...n) || 1;
-        pts[i] = { ...pts[i], n: n.map((v) => v / l) };
-      }
-    }
-  }
-
-  /**
-   * Weld smoothed points back onto the surface with the closest-point index.
-   * Points that slid too far (past the query cap) keep the smoothed position
-   * — the vine's lift hides it.
-   */
-  function weldToSurface(pts, alignNormals = false) {
-    const index = getMeshIndex();
-    const maxDist = Math.max(0.03, local.width * 6) * unit();
-    for (const pt of pts) {
-      const hit = index.closestPoint(
-        pt.p[0], pt.p[1], pt.p[2], maxDist,
-        alignNormals ? { normal: pt.n, minNormalDot: -0.25 } : undefined,
-      );
-      if (!hit) continue;
-      pt.p = hit.point;
-      pt.n = hit.normal;
-    }
-  }
-
-  function conformFreehand(raw, { alignNormals = false } = {}) {
-    const pts = resampleRaw(raw, CONFORM_STEP * unit(), MAX_CONFORM_POINTS);
-    if (!pts) return null;
-    smoothPositions(pts, local.flow);
-    weldToSurface(pts, alignNormals);
-    smoothNormals(pts, 2);
-    return pts;
-  }
-
-  function projectSplinePoint(p, { normal, alignNormal = false }) {
-    const index = getMeshIndex();
-    if (!target.geometry.boundingSphere) target.geometry.computeBoundingSphere();
-    const limit = Math.max(0.1, (target.geometry.boundingSphere?.radius ?? 1) * 2.1);
-    let reach = Math.max(0.03, local.width * 6) * unit();
-    while (reach < limit) {
-      const hit = index.closestPoint(
-        p[0], p[1], p[2], reach,
-        alignNormal ? { normal, minNormalDot: -0.25 } : undefined,
-      );
-      if (hit) return { p: hit.point, n: hit.normal };
-      reach *= 2;
-    }
-    const hit = index.closestPoint(
-      p[0], p[1], p[2], limit,
-      alignNormal ? { normal, minNormalDot: -0.25 } : undefined,
-    ) ?? (alignNormal ? index.closestPoint(p[0], p[1], p[2], limit) : null);
-    return hit ? { p: hit.point, n: hit.normal } : { p, n: normal };
-  }
-
-  function conformSpline(cvs, closed, cvRadiusScales, { alignNormals = false } = {}) {
-    const sampled = sampleSurfaceSpline(cvs, {
-      closed,
-      radiusScales: cvRadiusScales,
-      project: (p, meta) => projectSplinePoint(p, { ...meta, alignNormal: alignNormals }),
-    });
-    const pts = resampleRaw(sampled, CONFORM_STEP * unit(), MAX_CONFORM_POINTS);
-    if (!pts) return null;
-    weldToSurface(pts, alignNormals);
-    smoothNormals(pts, 2);
-    return pts;
-  }
-
-  function conformRecord(record) {
-    return isSurfaceSplineRecord(record)
-      ? conformSpline(record.cvs, record.closed, record.cvRadiusScales)
-      : conformFreehand(record.raw);
-  }
-
-  function geometryCenter() {
-    if (!target.geometry.boundingSphere) target.geometry.computeBoundingSphere();
-    const c = target.geometry.boundingSphere?.center;
-    return c ? [c.x, c.y, c.z] : [0, 0, 0];
-  }
-
-  function liveDrawSettings() {
-    return captureSurfaceDrawSettings(local, geometryCenter());
-  }
-
-  function recordDraw(record) {
-    return record?.draw ?? liveDrawSettings();
-  }
-
-  /**
-   * Rigid symmetry/mirror puts samples in empty space on non-symmetric meshes.
-   * Project each transformed sample back onto the target so copies stay on-skin.
-   */
-  function projectCopySample(sample, draw, copyIndex) {
-    if (copyIndex === 0) return sample;
-    const transformed = transformSurfaceCopySample(sample, draw, copyIndex);
-    const hit = projectSplinePoint(transformed.p, {
-      normal: transformed.n,
-      alignNormal: true,
-    });
-    return {
-      p: hit.p,
-      n: hit.n,
-      ...(transformed.radiusScale == null ? {} : { radiusScale: transformed.radiusScale }),
-    };
-  }
-
-  function clearCopyCache(record) {
-    if (record) record.copyCache = null;
-  }
-
-  /**
-   * Build the on-surface polyline for one symmetry/mirror copy.
-   * Authority (copy 0) reuses the cached conform; other copies are re-conformed
-   * from the transformed stroke so crossing the mirror plane cannot feed the
-   * field builder a path that tunnels through the mesh.
-   */
-  function samplesForCopy(record, copyIndex = 0) {
-    if (!record) return null;
-    if (copyIndex === 0) return record.conformed ?? null;
-    const cache = record.copyCache ??= new Map();
-    if (cache.has(copyIndex)) return cache.get(copyIndex);
-
-    const draw = recordDraw(record);
-    let samples = null;
-    if (isSurfaceSplineRecord(record)) {
-      const cvs = record.cvs.map((cv) => projectCopySample(cv, draw, copyIndex));
-      samples = conformSpline(cvs, record.closed, record.cvRadiusScales, { alignNormals: true });
-    } else if (Array.isArray(record.raw) && record.raw.length >= 2) {
-      const raw = record.raw.map((sample) => transformSurfaceCopySample(sample, draw, copyIndex));
-      samples = conformFreehand(raw, { alignNormals: true });
-    }
-    cache.set(copyIndex, samples);
-    return samples;
-  }
+  const {
+    projectSplinePoint,
+    conformFreehand,
+    conformSpline,
+    conformRecord,
+    geometryCenter,
+    liveDrawSettings,
+    recordDraw,
+    clearCopyCache,
+    samplesForCopy,
+    fieldStrokes,
+    buildCommittedGeometry,
+  } = createStrokePipeline({
+    getLocal: () => local,
+    getTarget: () => target,
+    getCommitted: () => committed,
+    getMeshIndex,
+    unit,
+  });
 
   /* -------------------------------------------------------------- build */
-
-  /** Manual meshing rebuilds one stroke at a time — keep field density lower. */
-  const MANUAL_FIELD_SCALE = 2 / 3;
-
-  function vineOptions() {
-    // Manual mode pays per stroke; keep field density down so appends stay snappy.
-    const res = local.manualMeshing ? local.res * MANUAL_FIELD_SCALE : local.res;
-    return {
-      radius: local.width * unit(),
-      peak: local.width * local.peak * unit(), // peak = ratio × width
-      relief: local.relief,
-      wobble: local.wobble,
-      melt: local.melt,
-      taper: local.taper,
-      taperPower: local.taperPower,
-      thornSpacing: local.thorns > 0.01 ? 13 - 10.5 * local.thorns : 0,
-      thornLength: local.spike,
-      // melt drives the weld softness too — one molten dial, like the field
-      blend: 0.35 + 1.35 * local.melt,
-      conform: local.conform,
-      detail: 3.2 * res,
-      // Keep the old quadratic budget at ≤1×, then grow faster so high-res
-      // settings aren't clawed back by the soft cell cap on dense drawings.
-      cellBudget: Math.round(100000 * res * res * Math.max(res, 1)),
-    };
-  }
-
-  function patchOptions() {
-    const thickness = local.width * 2 * unit();
-    const fieldResolution = local.manualMeshing
-      ? local.patchResolution * MANUAL_FIELD_SCALE
-      : local.patchResolution;
-    return {
-      thickness,
-      edgeFalloff: thickness * local.patchFalloff,
-      relief: local.patchRelief,
-      reliefRange: 6,
-      peakHeight: local.patchHeight * unit(),
-      conform: local.conform,
-      laplacian: local.patchMelt,
-      heightSmooth: 2,
-      fieldResolution,
-      meshIndex: getMeshIndex(),
-      taper: local.patchTaper,
-      taperPower: local.patchTaperPower,
-      normalSmooth: local.patchPolish,
-      pointRadius: true,
-    };
-  }
-
-  /** Conformed strokes (+ per-stroke symmetry/mirror copies). */
-  function fieldStrokes(records = committed) {
-    const list = [];
-    for (const rec of records) {
-      if (!rec.conformed) continue;
-      const draw = recordDraw(rec);
-      const copies = surfaceStrokeCopyCount(draw);
-      const closed = isSurfaceSplineRecord(rec) && rec.closed;
-      for (let copyIndex = 0; copyIndex < copies; copyIndex++) {
-        const samples = samplesForCopy(rec, copyIndex);
-        if (!samples || samples.length < 2) continue;
-        list.push({
-          samples,
-          seed: rec.seed + copyIndex * 101,
-          closed,
-          record: rec,
-          copyIndex,
-        });
-      }
-    }
-    return list;
-  }
-
-  function buildCommittedGeometry(strokes) {
-    if (local.surfaceBackend === 'patch') {
-      const paths = strokes.map(({ samples }) =>
-        samples.map(({ p, radiusScale = 1 }) => [...p, radiusScale]));
-      return buildSurfaceSigilGeometry(target.geometry, paths, patchOptions());
-    }
-    return buildSurfaceVineFieldGeometry(strokes, vineOptions());
-  }
 
   function disposeMesh(mesh) {
     if (!mesh) return;
