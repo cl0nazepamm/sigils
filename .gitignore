@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.vite/
+*.log
+debug-*.png
+.DS_Store
+
+# agent / tooling scratch dirs
+.agents/
+.codex/
+.claude/
+CLAUDE.md
+
+# local working scratch (never distributed)

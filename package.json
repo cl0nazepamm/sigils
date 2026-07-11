@@ -1,0 +1,53 @@
+{
+  "name": "three-sigils",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Procedural chrome-sigil meshes for three.js: symmetric stroke fields, marching-squares fill, and TSL displacement shading.",
+  "keywords": [
+    "threejs",
+    "three",
+    "tsl",
+    "webgpu",
+    "geometry",
+    "sigil",
+    "marching-squares",
+    "sdf",
+    "procedural",
+    "chrome"
+  ],
+  "license": "MIT",
+  "author": "vaticanshadow",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cl0nazepamm/sigils.git"
+  },
+  "homepage": "https://cl0nazepamm.github.io/sigils/",
+  "bugs": {
+    "url": "https://github.com/cl0nazepamm/sigils/issues"
+  },
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": "./src/index.js",
+    "./tsl": "./src/tsl/chromeMaterial.js"
+  },
+  "files": [
+    "src"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "example": "vite",
+    "build:example": "vite build",
+    "test": "node test/run.mjs"
+  },
+  "peerDependencies": {
+    "three": ">=0.176.0"
+  },
+  "devDependencies": {
+    "speedball-gi": "^0.6.2",
+    "three": "^0.185.0",
+    "three-mesh-bvh": "^0.9.10",
+    "vite": "^5.4.0"
+  }
+}
