@@ -1,19 +1,21 @@
 import {
   buildSparseCurveGeometry,
   createChromeMaterial,
+  updateChromeMaterial,
+} from '../../src/index.js';
+import {
   createDrawDemoState,
   chromeOptionsFromState,
   sparsePreviewOptionsFromState,
-  updateChromeMaterial,
-} from '../../src/index.js';
-import { buildResidentField } from '../../src/meshlessField.js';
+} from '../shared/sigilDefaults.js';
+import { buildResidentField } from '../shared/meshlessField.js';
 import {
   createRaymarchSigilMaterial,
   updateRaymarchSigilMaterial,
   updateRaymarchFieldUniforms,
   buildProxyBoxGeometry,
   RAYMARCH_STEPS,
-} from '../../src/tsl/raymarchSigilMaterial.js';
+} from '../shared/raymarchSigilMaterial.js';
 import { createDrawPlane } from '../shared/demoContext.js';
 import { bindRightDragOrbit } from '../shared/orbit.js';
 import { bindUndoRedoKeys } from '../shared/hotkeys.js';

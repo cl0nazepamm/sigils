@@ -2,7 +2,7 @@ import { createDemoContext } from './shared/demoContext.js';
 import * as realtime from './modes/realtime.js';
 import * as meshless from './modes/meshless.js';
 import * as surface from './modes/surface.js';
-import { createSigilState } from '../src/index.js';
+import { createSigilState } from './shared/sigilDefaults.js';
 import { demoModeLabel, resolveDemoStartup } from './shared/demoModeState.js';
 import { normalizeCvRadiusScales, sampleSplinePoints } from './shared/strokeSession.js';
 

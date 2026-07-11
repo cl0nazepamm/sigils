@@ -1,5 +1,7 @@
 /**
- * Central defaults and option builders for the sigils pipeline.
+ * Sigils Creator panel state and option builders.
+ *
+ * Not part of the published three-sigils API — lives with the demo under examples/.
  */
 
 export const DRAW_MERGE_RESOLUTION = 390;

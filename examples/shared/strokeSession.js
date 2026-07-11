@@ -1,8 +1,5 @@
-import {
-  bspline,
-  radialSymmetry,
-  shapeOptionsFromState,
-} from '../../src/index.js';
+import { bspline, radialSymmetry } from '../../src/index.js';
+import { shapeOptionsFromState } from './sigilDefaults.js';
 
 const DRAW_SETTING_KEYS = new Set(['symmetry', 'mirror', 'phase', 'center']);
 

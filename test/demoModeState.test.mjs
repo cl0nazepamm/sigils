@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createSigilState } from '../src/index.js';
+import { createSigilState } from '../examples/shared/sigilDefaults.js';
 import {
   demoModeLabel,
   resolveDemoStartup,

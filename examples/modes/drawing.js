@@ -10,11 +10,13 @@ import {
   buildSparseCurveGeometry,
   buildSigilGeometryAsync,
   createChromeMaterial,
+  updateChromeMaterial,
+} from '../../src/index.js';
+import {
   createDrawDemoState,
   sparsePreviewOptionsFromState,
   chromeOptionsFromState,
-  updateChromeMaterial,
-} from '../../src/index.js';
+} from '../shared/sigilDefaults.js';
 import { createDrawPlane } from '../shared/demoContext.js';
 import { mountControlPanel, syncControlPanelToState } from '../shared/controlPanel.js';
 import { DEMO_CONTROL_SPECS } from '../shared/demoControlSpecs.js';

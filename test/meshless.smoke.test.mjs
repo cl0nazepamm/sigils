@@ -19,8 +19,8 @@ import {
   buildProxyBoxGeometry,
   PEAK_MAX,
   RAYMARCH_STEPS,
-} from '../src/tsl/raymarchSigilMaterial.js';
-import { buildResidentField } from '../src/meshlessField.js';
+} from '../examples/shared/raymarchSigilMaterial.js';
+import { buildResidentField } from '../examples/shared/meshlessField.js';
 import { prepareStrokes } from '../src/strokePipeline.js';
 
 function fakeField() {
