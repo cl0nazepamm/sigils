@@ -7,14 +7,11 @@
  */
 
 import {
-  buildSparseCurveGeometry,
-  buildSigilGeometryAsync,
   createChromeMaterial,
   updateChromeMaterial,
 } from '../../src/index.js';
 import {
   createDrawDemoState,
-  sparsePreviewOptionsFromState,
   chromeOptionsFromState,
 } from '../shared/sigilDefaults.js';
 import { createDrawPlane } from '../shared/demoContext.js';
@@ -31,8 +28,6 @@ import {
   markUnsupported,
 } from '../shared/unsupportedUi.js';
 import {
-  activeBuildPaths,
-  buildOptionsForSession,
   clampCvRadiusScale,
   committedBuildPaths,
   cvInsertIndexFromHit,
@@ -40,13 +35,10 @@ import {
   cvRadiusScaleFromDrag,
   closestPointOnPolyline2D,
   cloneStrokeEdit,
-  expandActivePaths,
   isDrawSettingKey,
   isSplineRecord,
   makeStrokeRecord,
   makeSplineRecord,
-  MAX_CV_RADIUS_SCALE,
-  MIN_CV_RADIUS_SCALE,
   normalizeCvRadiusScales,
   pickCvControl,
   pointOnPolyline2DHit,
@@ -58,37 +50,28 @@ import {
   inverseStrokeCopyPoint,
   updateSplineRecord,
 } from '../shared/strokeSession.js';
+import {
+  PICK_RADIUS_PX,
+  HANDLE_RADIUS_PX,
+  RADIUS_PICK_TOLERANCE_PX,
+  TOUCH_HANDLE_RADIUS_PX,
+  TOUCH_PICK_RADIUS_PX,
+  TOUCH_RADIUS_TOLERANCE_PX,
+  STROKE_PICK_PAD_PX,
+  DOUBLE_CLICK_WINDOW_MS,
+  DOUBLE_CLICK_SLOP_PX,
+  CLOSE_MIN_CVS,
+  MAX_HISTORY,
+  CV_RADIUS_SPEC,
+  ACTIVE_CVS_SPEC,
+  DRAW_TOOLS,
+} from './drawing/constants.js';
+import { createDrawingRebuild } from './drawing/rebuild.js';
 
 export const meta = {
   id: 'realtime',
   label: 'Drawing',
 };
-
-const PICK_RADIUS_PX = 14;
-const HANDLE_RADIUS_PX = 5;
-const RADIUS_PICK_TOLERANCE_PX = 8;
-const TOUCH_HANDLE_RADIUS_PX = 12;
-const TOUCH_PICK_RADIUS_PX = 20;
-const TOUCH_RADIUS_TOLERANCE_PX = 14;
-const STROKE_PICK_PAD_PX = 6;
-const DOUBLE_CLICK_WINDOW_MS = 600;
-const DOUBLE_CLICK_SLOP_PX = 8;
-const CLOSE_MIN_CVS = 3;
-const MAX_HISTORY = 100;
-const CV_RADIUS_SPEC = {
-  key: 'cvRadiusScale',
-  label: 'New point width ×',
-  type: 'range',
-  min: MIN_CV_RADIUS_SCALE,
-  max: MAX_CV_RADIUS_SCALE,
-  step: 0.01,
-};
-const ACTIVE_CVS_SPEC = {
-  key: 'showActiveCvs',
-  label: 'Show curve points',
-  type: 'check',
-};
-const DRAW_TOOLS = new Set(['freehand', 'spline']);
 
 export function mount(ctx, {
   panelRoot,
@@ -307,6 +290,15 @@ export function mount(ctx, {
 
   let pathTrace;
   let photon;
+  let setMeshGeometry;
+  let clearMesh;
+  let clearCommittedMesh;
+  let refreshFreehandPreview;
+  let refreshDraftPreview;
+  let refreshDragPreview;
+  let updateVertexCount;
+  let rebuild;
+
   if (renderBackend === 'webgl') {
     markUnsupported(ui.photon);
     markUnsupported(ui.pathtrace);
@@ -350,6 +342,49 @@ export function mount(ctx, {
       onToggle: (on) => { if (on) pathTrace.setActive(false); },
     });
   }
+
+
+  ({
+    setMeshGeometry,
+    clearMesh,
+    clearCommittedMesh,
+    refreshFreehandPreview,
+    refreshDraftPreview,
+    refreshDragPreview,
+    updateVertexCount,
+    rebuild,
+  } = createDrawingRebuild({
+    THREE,
+    getState: () => state,
+    getStrokes: () => strokes,
+    getDraft: () => draft,
+    getDrag: () => drag,
+    getDrawing: () => drawing,
+    getCurrent: () => current,
+    getHoldPreviewUntilRebuild: () => holdPreviewUntilRebuild,
+    setHoldPreviewUntilRebuild: (v) => { holdPreviewUntilRebuild = v; },
+    getComputeFailed: () => computeFailed,
+    setComputeFailed: (v) => { computeFailed = v; },
+    setBlendBackend: (v) => { blendBackend = v; },
+    setLastError: (v) => { lastError = v; },
+    getRebuildVersion: () => rebuildVersion,
+    setRebuildVersion: (v) => { rebuildVersion = v; },
+    getRebuildQueued: () => rebuildQueued,
+    setRebuildQueued: (v) => { rebuildQueued = v; },
+    getRebuildRunning: () => rebuildRunning,
+    setRebuildRunning: (v) => { rebuildRunning = v; },
+    getBuildingCount: () => buildingCount,
+    setBuildingCount: (v) => { buildingCount = v; },
+    setVertexCount: (v) => { vertexCount = v; },
+    sigilMesh,
+    draftMesh,
+    dragMesh,
+    freehandMesh,
+    computeRenderer,
+    photon,
+    pathTrace,
+    signal,
+  }));
 
   function worldPerPixel() {
     if (camera.isOrthographicCamera) {
@@ -856,214 +891,6 @@ export function mount(ctx, {
       ringTolerance: pixel * (touch ? TOUCH_RADIUS_TOLERANCE_PX : RADIUS_PICK_TOLERANCE_PX),
       ringInnerRatio: 0.9,
     });
-  }
-
-  // --- preview meshes -----------------------------------------------------
-
-  function setMeshGeometry(mesh, geometry) {
-    const old = mesh.geometry;
-    mesh.geometry = geometry;
-    old.dispose();
-    mesh.visible = (geometry.getAttribute('position')?.count ?? 0) > 0;
-    updateVertexCount();
-  }
-
-  function clearMesh(mesh) {
-    setMeshGeometry(mesh, new THREE.BufferGeometry());
-  }
-
-  function stripOptions() {
-    return {
-      ...sparsePreviewOptionsFromState(state),
-      pointRadius: true,
-      symmetry: 1,
-      mirror: false,
-      phase: 0,
-    };
-  }
-
-  function clearCommittedMesh() {
-    clearMesh(sigilMesh);
-    photon.syncCaster();
-    pathTrace.syncSigil();
-  }
-
-  function refreshFreehandPreview() {
-    if (state.previewStripOnly) {
-      const paths = activeBuildPaths(strokes, drawing ? current : [], state);
-      if (paths.length === 0) {
-        clearMesh(freehandMesh);
-        return;
-      }
-      setMeshGeometry(freehandMesh, buildSparseCurveGeometry(paths, stripOptions()));
-      return;
-    }
-
-    if (holdPreviewUntilRebuild && !drawing) return;
-    if (!drawing || current.length < 2) {
-      clearMesh(freehandMesh);
-      return;
-    }
-    setMeshGeometry(
-      freehandMesh,
-      buildSparseCurveGeometry([current], sparsePreviewOptionsFromState(state)),
-    );
-  }
-
-  function refreshDraftPreview() {
-    if (!draft) {
-      clearMesh(draftMesh);
-      return;
-    }
-    const cvs = draft.hover && !drag ? [...draft.cvs, draft.hover] : draft.cvs;
-    const cvRadiusScales = draft.hover && !drag
-      ? [...draft.cvRadiusScales, clampCvRadiusScale(state.cvRadiusScale)]
-      : draft.cvRadiusScales;
-    if (cvs.length < 2) {
-      clearMesh(draftMesh);
-      return;
-    }
-    const sampled = sampleSplinePoints(cvs, false, cvRadiusScales);
-    const paths = expandActivePaths(sampled, state);
-    setMeshGeometry(draftMesh, buildSparseCurveGeometry(paths, stripOptions()));
-  }
-
-  function refreshDragPreview() {
-    if (state.previewStripOnly) {
-      clearMesh(dragMesh);
-      refreshFreehandPreview();
-      return;
-    }
-    const paths = committedBuildPaths(strokes);
-    if (paths.length === 0) {
-      clearMesh(dragMesh);
-      return;
-    }
-    setMeshGeometry(dragMesh, buildSparseCurveGeometry(paths, stripOptions()));
-  }
-
-  function updateVertexCount() {
-    let count = 0;
-    for (const mesh of [sigilMesh, draftMesh, dragMesh, freehandMesh]) {
-      if (mesh.visible) count += mesh.geometry.getAttribute('position')?.count ?? 0;
-    }
-    vertexCount = count;
-  }
-
-  // --- merged rebuild -----------------------------------------------------
-
-  // GPU field and laplacian builds contain readback waits, so UI events can ask
-  // for several newer meshes while one is in flight. Keep one active build and
-  // at most one trailing build that reads the latest state; obsolete requests
-  // are coalesced instead of forming a latency backlog.
-  function rebuild() {
-    rebuildVersion++;
-    // Empty/strip transitions do not need compute and should remain instant
-    // even when an older GPU build is still waiting on readback.
-    if (state.previewStripOnly) {
-      rebuildQueued = false;
-      clearCommittedMesh();
-      clearMesh(dragMesh);
-      holdPreviewUntilRebuild = false;
-      blendBackend = 'strip';
-      refreshFreehandPreview();
-      return;
-    }
-    if (strokes.length === 0) {
-      rebuildQueued = false;
-      clearMesh(sigilMesh);
-      clearMesh(dragMesh);
-      holdPreviewUntilRebuild = false;
-      if (!drawing) clearMesh(freehandMesh);
-      blendBackend = '—';
-      photon.syncCaster();
-      pathTrace.syncSigil();
-      return;
-    }
-    rebuildQueued = true;
-    if (!rebuildRunning) void drainRebuilds();
-  }
-
-  async function drainRebuilds() {
-    rebuildRunning = true;
-    try {
-      while (rebuildQueued && !signal.aborted) {
-        rebuildQueued = false;
-        const version = rebuildVersion;
-        await runRebuild(version);
-      }
-    } finally {
-      rebuildRunning = false;
-    }
-  }
-
-  async function runRebuild(version) {
-    try {
-      lastError = '';
-      if (state.previewStripOnly) {
-        clearCommittedMesh();
-        clearMesh(dragMesh);
-        holdPreviewUntilRebuild = false;
-        blendBackend = 'strip';
-        refreshFreehandPreview();
-        return;
-      }
-      if (strokes.length === 0) {
-        clearMesh(sigilMesh);
-        clearMesh(dragMesh);
-        holdPreviewUntilRebuild = false;
-        if (!drawing) clearMesh(freehandMesh);
-        blendBackend = '—';
-        photon.syncCaster(); // stay armed; hide the caustic while there's no caster
-        pathTrace.syncSigil(); // nothing to trace -> drops back to raster
-        return;
-      }
-
-      const paths = committedBuildPaths(strokes);
-      let geometry;
-      buildingCount++;
-      try {
-        geometry = await buildSigilGeometryAsync(paths, {
-          ...buildOptionsForSession(state),
-          renderer: computeFailed ? null : computeRenderer,
-          onGpuFallback: (error) => {
-            computeFailed = true;
-            console.warn('sigils: compute failed; using the CPU mesh fallback for this session.', error);
-          },
-        });
-      } finally {
-        buildingCount--;
-      }
-
-      // signal.aborted: the mode unmounted while this build was in flight —
-      // touching the rigs now would resurrect disposed engines into the scene.
-      if (version !== rebuildVersion || state.previewStripOnly || signal.aborted) {
-        geometry.dispose();
-        return;
-      }
-
-      blendBackend = geometry.userData.fieldBackend
-        ?? geometry.userData.laplacianBackend
-        ?? geometry.userData.buildBackend
-        ?? state.backend;
-
-      setMeshGeometry(sigilMesh, geometry);
-      // A new committed-CV drag may have started while this build was in
-      // flight; keep showing strips until ITS release-rebuild lands.
-      if (drag?.previewStarted && drag.record !== 'draft') {
-        sigilMesh.visible = false;
-      } else {
-        clearMesh(dragMesh);
-      }
-      holdPreviewUntilRebuild = false;
-      if (!drawing) clearMesh(freehandMesh);
-      if (pathTrace.active) sigilMesh.visible = false;
-      photon.syncCaster();
-      pathTrace.syncSigil();
-    } catch (error) {
-      lastError = error?.message ?? String(error);
-      console.error('sigils rebuild failed', error);
-    }
   }
 
   // --- history --------------------------------------------------------------
