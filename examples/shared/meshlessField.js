@@ -59,8 +59,8 @@ function fieldCapacityForGrid(grid, resolution, total) {
   return Math.max(total, maxCells * maxCells);
 }
 
-import { prepareStrokes } from './strokePipeline.js';
-import { FieldGrid, rasterizeFieldKernel, blurFieldKernel } from './internal/gpuFieldCore.js';
+import { prepareStrokes } from '../../src/strokePipeline.js';
+import { FieldGrid, rasterizeFieldKernel, blurFieldKernel } from '../../src/internal/gpuFieldCore.js';
 
 /**
  * @typedef {object} ResidentField
@@ -83,7 +83,7 @@ import { FieldGrid, rasterizeFieldKernel, blurFieldKernel } from './internal/gpu
  *
  * @param {import('three/webgpu').WebGPURenderer} renderer
  * @param {*} strokes
- * @param {object} [opts] - shapeOptionsFromState(state) shape
+ * @param {object} [opts] - shape options (see shapeOptionsFromState)
  * @param {ResidentField|null} [pool] - the previous result, for buffer reuse
  * @returns {Promise<ResidentField|null>} null when there are no segments to raster
  */

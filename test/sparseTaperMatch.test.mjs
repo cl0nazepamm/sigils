@@ -3,9 +3,11 @@ import {
   buildSparseCurveGeometry,
   DistanceField,
   prepareStrokes,
+} from '../src/index.js';
+import {
   sparsePreviewOptionsFromState,
   createSigilState,
-} from '../src/index.js';
+} from '../examples/shared/sigilDefaults.js';
 
 const stroke = [[0, 0], [1, 0], [2, 0]];
 const taper = 1;

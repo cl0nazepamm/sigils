@@ -1,25 +1,14 @@
 /**
- * sigils — procedural chrome-sigil meshes for three.js.
+ * three-sigils — procedural chrome-sigil meshes for three.js.
  *
  * Pipeline: strokes -> radial symmetry -> distance field -> filled marching
  * squares -> solidify -> TSL displacement + chrome shading.
+ *
+ * Creator/demo helpers (panel state, meshless raymarch) live under examples/.
  */
 
 // High-level
 export { createSigil, createSigilAsync } from './createSigil.js';
-export {
-  SIGIL_DEFAULTS,
-  DRAW_DEMO_DEFAULTS,
-  createSigilState,
-  createDrawDemoState,
-  shapeOptionsFromState,
-  sparsePreviewOptionsFromState,
-  chromeOptionsFromState,
-  mergedSigilShapeOptions,
-  realtimeMergedShapeOptions,
-  DRAW_MERGE_RESOLUTION,
-  REALTIME_MERGE_RESOLUTION,
-} from './sigilDefaults.js';
 
 // Geometry pipeline (compose your own)
 export {

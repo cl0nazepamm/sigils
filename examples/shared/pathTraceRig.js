@@ -19,7 +19,7 @@ import { bakeChromeGeometryForGlb } from './glbExport.js';
 import { PT_ENV_DATA_URI } from './ptEnvMap.js';
 import { mountControlPanel, syncControlPanelToState } from './controlPanel.js';
 import { setOrthographicLocked } from './unsupportedUi.js';
-import { chromeOptionsFromState } from '../../src/index.js';
+import { chromeOptionsFromState } from './sigilDefaults.js';
 
 // SPP limit: converge to this, then hold the frame with no compute.
 // envIntensity/envRotation: normalized HDRI strength and azimuth for the traced

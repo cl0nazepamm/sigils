@@ -5,10 +5,8 @@ import {
   MeshStandardMaterial,
 } from 'three';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
-import {
-  buildSigilGeometryAsync,
-  chromeOptionsFromState,
-} from '../../src/index.js';
+import { buildSigilGeometryAsync } from '../../src/index.js';
+import { chromeOptionsFromState } from './sigilDefaults.js';
 import {
   buildOptionsForSession,
   committedBuildPaths,

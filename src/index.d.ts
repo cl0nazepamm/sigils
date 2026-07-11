@@ -173,90 +173,6 @@ export interface SparseCurveOptions {
 }
 
 export type SigilOptions = ShapeOptions & ChromeOptions;
-export type DrawTool = 'freehand' | 'spline';
-
-export interface SigilState {
-  minDrawStep: number;
-  drawTool: DrawTool;
-  symmetry: number;
-  mirror: boolean;
-  phase: number;
-  center: Pt2;
-  thickness: number;
-  cvRadiusScale: number;
-  showActiveCvs: boolean;
-  guides: boolean;
-  previewStripOnly: boolean;
-  orthographic: boolean;
-  backend: 'hybrid' | 'cpu';
-  resolution: number;
-  smooth: number;
-  taper: number;
-  taperPower: number;
-  edgeFalloffNorm: number;
-  base: number;
-  resample: number | null;
-  resampleFactor: number;
-  gridBuffer: number | null;
-  gridBufferFactor: number;
-  depthMode: 'boundary' | 'centerline';
-  relief: 'plateau' | 'carve';
-  reliefRange: number;
-  mergeBlendScale: number;
-  depthBlendScale: number;
-  laplacian: number;
-  laplacianWeight: number;
-  heightSmooth: number;
-  heightSmoothWeight: number;
-  taperLen: number;
-  previewTaperPower: number;
-  tipRadius: number;
-  ridgePower: number;
-  bevel: number;
-  previewHeightSmooth: number;
-  previewHeightSmoothWeight: number;
-  previewResample: number;
-  simplify: number;
-  spread: number;
-  peak: number;
-  roughness: number;
-  metalness: number;
-  profile: 'linear' | 'round';
-  color: ColorRepresentation;
-  envMapIntensity: number;
-}
-
-export const SIGIL_DEFAULTS: {
-  interaction: { minDrawStep: number };
-  stroke: {
-    drawTool: DrawTool;
-    symmetry: number;
-    mirror: boolean;
-    phase: number;
-    center: Pt2;
-    thickness: number;
-    cvRadiusScale: number;
-    showActiveCvs: boolean;
-    guides: boolean;
-    previewStripOnly: boolean;
-    orthographic: boolean;
-  };
-  field: Record<string, number | string>;
-  melt: Record<string, number>;
-  preview: Record<string, number>;
-  surface: Record<string, number | string>;
-};
-
-export function createSigilState(overrides?: Partial<SigilState>): SigilState;
-export function createDrawDemoState(overrides?: Partial<SigilState>): SigilState;
-export const DRAW_DEMO_DEFAULTS: Partial<SigilState> & {
-  center: Pt2;
-  resolution: number;
-  minDrawStep: number;
-};
-export function shapeOptionsFromState(state: SigilState): ShapeOptions;
-export function sparsePreviewOptionsFromState(state: SigilState): SparseCurveOptions;
-export function chromeOptionsFromState(state: SigilState): ChromeOptions;
 
 export interface ChromeNodeMaterial extends MeshStandardNodeMaterial {
   sigilUniforms: { peakHeight: any; roughness: any };
@@ -276,10 +192,6 @@ export interface SigilMesh extends Mesh {
 
 export function createSigil(paths: PathInput, opts?: SigilOptions): SigilMesh;
 export function createSigilAsync(paths: PathInput, opts?: SigilOptions): Promise<SigilMesh>;
-export function mergedSigilShapeOptions(overrides?: ShapeOptions): ShapeOptions;
-export function realtimeMergedShapeOptions(overrides?: ShapeOptions): ShapeOptions;
-export const DRAW_MERGE_RESOLUTION: number;
-export const REALTIME_MERGE_RESOLUTION: number;
 
 export function buildSigilGeometry(paths: PathInput, opts?: ShapeOptions): BufferGeometry;
 export function buildSigilGeometryAsync(paths: PathInput, opts?: ShapeOptions): Promise<BufferGeometry>;

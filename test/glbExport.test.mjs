@@ -3,7 +3,7 @@ import {
   BufferGeometry,
   Float32BufferAttribute,
 } from 'three';
-import { createSigilState } from '../src/index.js';
+import { createSigilState } from '../examples/shared/sigilDefaults.js';
 import {
   bakeChromeGeometryForGlb,
   buildCommittedGlb,

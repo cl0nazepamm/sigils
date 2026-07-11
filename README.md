@@ -113,7 +113,22 @@ console.log(sigil.geometry.userData.fieldBackend); // 'gpu' or 'cpu'
 
 
 
-## Lower-level API
+## API surface
+
+**Start here** — most apps only need these:
+
+```js
+import {
+  createSigil,
+  createSigilAsync,
+  createChromeMaterial,
+  updateChromeMaterial,
+  bspline,
+  radialSymmetry,
+} from 'three-sigils';
+```
+
+**Compose your own** — geometry builders and surface paint:
 
 ```js
 import {
@@ -127,14 +142,6 @@ import {
   gpuLaplacianPositions,           // adjacency Laplacian on a finished mesh (GPU)
   cpuLaplacianPositions,
   laplacianPositionsAsync,
-  createChromeMaterial,            // TSL chrome NodeMaterial
-  updateChromeMaterial,
-  bspline,                         // CV curve → polyline (open or closed)
-  radialSymmetry,                  // strokes → N rotated copies
-  prepareStrokes,
-  DistanceField,
-  fillRegion,
-  resampleByLength,
   // Paint-on-mesh
   buildSurfaceVineGeometry,
   buildSurfaceVineFieldGeometry,
@@ -142,6 +149,14 @@ import {
   createMeshIndex,
 } from 'three-sigils';
 ```
+
+**Internal / advanced** — `prepareStrokes`, `DistanceField`, `fillRegion`,
+path helpers (`toPolyline`, `resampleByLength`, …). Prefer the builders above
+unless you are extending the pipeline.
+
+Creator panel state (`createSigilState`, `shapeOptionsFromState`, …) and the
+meshless raymarch path live under `examples/` — they are not part of the
+published package API.
 
 `laplacian` / `laplacianWeight` are mesh-adjacency Laplacian smooth passes
 on the filled silhouette.
@@ -184,35 +199,17 @@ npm run example
 
 Right-drag orbits, middle-drag pans; GLB export bakes the displaced chrome mesh.
 
-### Library surface
+### When to use which path
 
-```js
-import {
-  createSigil,
-  createSigilAsync,
-  buildSigilGeometry,
-  buildSigilGeometryAsync,
-  buildSparseCurveGeometry,
-  buildSparseCurveGeometryAsync,
-  buildGpuFieldMeshAsync,
-  finishSigilGeometryFromField,
-  finishSigilGeometryFromFieldAsync,
-  gpuLaplacianPositions,
-  cpuLaplacianPositions,
-  laplacianPositionsAsync,
-  createChromeMaterial,
-  updateChromeMaterial,
-  bspline,
-  radialSymmetry,
-  buildSurfaceVineGeometry,
-  buildSurfaceVineFieldGeometry,
-  buildSurfaceSigilGeometry,
-  createMeshIndex,
-} from 'three-sigils';
-```
+| Path | Use when |
+| ---- | -------- |
+| **Sparse preview** (`buildSparseCurveGeometry`) | Live drawing — curve-native strips, no field sampling. Cheap. |
+| **Merged field** (`createSigilAsync` / `buildGpuFieldMeshAsync`) | Final chrome mesh, GLB export, welded junctions. Cost scales with `resolution` × `laplacian`. |
+| **Raymarch (Creator)** | Meshless WebGPU preview in Sigils Creator only — not a library export. |
 
-Sparse preview uses `buildSparseCurveGeometry()` — curve-native strips with no field sampling.
-Merged geometry uses `buildGpuFieldMeshAsync()` or `createSigilAsync()`.
+Practical budgets for merged builds: `resolution` ~280–460; `laplacian` ~0–54.
+Higher values look softer and cost more; hybrid falls back to CPU when compute is unavailable.
+
 Surface painting uses `buildSurfaceVineFieldGeometry` / `buildSurfaceSigilGeometry`
 (with optional `conform` along the surface normal).
 
@@ -223,6 +220,7 @@ Surface painting uses `buildSurfaceVineFieldGeometry` / `buildSurfaceSigilGeomet
   on compute. Mesh topology remains CPU-side so both backends produce ordinary,
   exportable `BufferGeometry`.
 - `peakHeight` is in world units — scale it to your stroke coordinates.
+- Chrome needs something to reflect — set `scene.environment` to a PMREM.
 
 ## Acknowledgements
 
