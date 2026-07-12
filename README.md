@@ -8,21 +8,21 @@
 
 # three-sigils
 
-Metallic shape generation for [three.js](https://threejs.org/). Open Sigils Creator below to draw.
+Metallic shape generation for [three.js](https://threejs.org/). Open **Sigils Creator** (the interactive demo) below to draw.
 
 Additionally it has photon tracing and path tracing for fun.
 
-# Launch Sigils Creator (WebGPU)
+# Try Sigils Creator (WebGPU)
 
-**[Sigils Creator](https://cl0nazepamm.github.io/sigils/)**
+**[Open Sigils Creator](https://cl0nazepamm.github.io/sigils/)** — hosted demo. Creator is **not** published on npm; only the `three-sigils` library is.
 
-## Install
+## Install the library
 
 ```bash
 npm install three-sigils three
 ```
 
-`three` is a peer dependency (`>=0.176`). Demo uses r185
+`three` is a peer dependency (`>=0.176`). The demo below uses r185.
 
 ## Quick start
 
@@ -182,9 +182,13 @@ The geometry exposes these vertex attributes:
 | `aNormal` | vec3  | flat normal for the base + walls                                                                                                                                         |
 | `aDome`   | float | 1 on the top surface, 0 on base/walls                                                                                                                                    |
 
-## Run Sigils Creator
+## Run Sigils Creator locally
+
+Creator is the Vite app under `examples/`. Clone this repo (or open the [hosted demo](https://cl0nazepamm.github.io/sigils/)) — `npm install three-sigils` alone does not include it.
 
 ```bash
+git clone https://github.com/cl0nazepamm/sigils.git
+cd sigils
 npm install
 npm run example
 ```
