@@ -22,6 +22,7 @@ import { bindUndoRedoKeys } from '../shared/hotkeys.js';
 import { mountControlPanel, syncControlPanelToState } from '../shared/controlPanel.js';
 import { DEMO_CONTROL_SPECS } from '../shared/demoControlSpecs.js';
 import { bindGlbExportButton } from '../shared/glbExport.js';
+import { bindSaveImageButton } from '../shared/saveImage.js';
 import {
   activeBuildPaths,
   buildOptionsForSession,
@@ -66,7 +67,7 @@ function compactControlSpecs(specs, ignored) {
       continue;
     }
 
-    if (spec.type === 'hostReset') {
+    if (spec.type === 'group' || spec.type === 'hostReset') {
       closeEmptySection();
       out.push(spec);
       continue;
@@ -120,9 +121,10 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
       <button id="undo" type="button">Undo</button>
       <button id="clear" type="button">Clear</button>
       <button id="export-glb" type="button">Export GLB</button>
+      <button id="save-png" type="button">Save PNG</button>
     </div>
   `;
-  infoRoot.innerHTML = `<b>Sigils Creator · Raymarch</b><br /><span id="stats">—</span><br /><span class="hint pointer-hint-mouse">draw: left-drag · orbit: right-drag · pan: middle · ctrl/⌘+z undo · +shift redo</span><span class="hint pointer-hint-touch">draw: one finger · pan/zoom: two fingers · undo from the panel</span>`;
+  infoRoot.innerHTML = `<b>Sigils Creator · Raymarch</b><br /><span id="stats">—</span><br /><span class="hint pointer-hint-mouse">draw: left-drag · orbit: right-drag · pan: middle · ctrl/⌘+z undo · +shift redo</span><span class="hint pointer-hint-touch">draw: one finger · two fingers: orbit/zoom · pan: three fingers · undo from the panel</span>`;
 
   const statsEl = infoRoot.querySelector('#stats');
   const controlsRoot = panelRoot.querySelector('#controls');
@@ -214,9 +216,29 @@ export function mount(ctx, { panelRoot, infoRoot, state = createDrawDemoState(),
     undo: panelRoot.querySelector('#undo'),
     clear: panelRoot.querySelector('#clear'),
     exportGlb: panelRoot.querySelector('#export-glb'),
+    savePng: panelRoot.querySelector('#save-png'),
   };
 
   bindGlbExportButton(ui.exportGlb, { strokes, state, renderer, signal });
+  bindSaveImageButton(ui.savePng, {
+    signal,
+    getView: () => ({ renderer, scene, camera, THREE }),
+    prepareCapture: () => {
+      const prevGuides = guideGroup.visible;
+      const prevPreview = previewMesh?.visible ?? false;
+      guideGroup.visible = false;
+      if (previewMesh) previewMesh.visible = false;
+      ctx.setRasterBackdropHidden?.('savePng', true);
+      return () => {
+        guideGroup.visible = prevGuides;
+        if (previewMesh) previewMesh.visible = prevPreview;
+        ctx.setRasterBackdropHidden?.('savePng', false);
+      };
+    },
+    drawBeauty: () => {
+      renderer.render(scene, camera);
+    },
+  });
 
   function applyDrawDefaults() {
     Object.assign(state, createDrawDemoState());

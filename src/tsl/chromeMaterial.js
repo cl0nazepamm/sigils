@@ -94,11 +94,18 @@ export function createChromeMaterial(opts = {}) {
 }
 
 /** Convenience setter for live material controls. */
-export function updateChromeMaterial(material, { peakHeight, roughness, envMapIntensity } = {}) {
+export function updateChromeMaterial(material, {
+  peakHeight, roughness, metalness, color, envMapIntensity,
+} = {}) {
   const u = material.sigilUniforms;
   if (!u) return;
   if (peakHeight !== undefined) u.peakHeight.value = peakHeight;
   if (roughness !== undefined) u.roughness.value = roughness;
+  if (metalness !== undefined) material.metalness = metalness;
+  if (color !== undefined) {
+    material.color.set(color);
+    material.needsUpdate = true;
+  }
   if (envMapIntensity !== undefined) {
     material.envMapIntensity = envMapIntensity;
     material.needsUpdate = true;

@@ -8,7 +8,7 @@ import {
 } from '../../shared/strokeSession.js';
 
 export const SURFACE_CONTROL_SPECS = [
-  { type: 'section', label: 'Main', main: true },
+  { type: 'section', label: 'Main', main: true, open: true },
   { key: 'width', label: 'Width', type: 'range', min: 0.002, max: 0.06, step: 0.001, main: true },
   // Peak rides the width as a RATIO: the extractor artifacts live in the
   // aspect (peak/width), so tangling the two keeps every size in the safe
@@ -21,18 +21,21 @@ export const SURFACE_CONTROL_SPECS = [
   { key: 'res', label: 'Resolution', type: 'range', min: 0.5, max: 4, step: 0.05, forge: 'welded', main: true },
   { key: 'patchResolution', label: 'Resolution', type: 'range', min: 0.25, max: 4, step: 0.05, forge: 'patch', main: true },
 
-  { type: 'section', label: 'Geometry' },
+  { type: 'group' },
+  { type: 'section', label: 'Geometry', open: true },
   { key: 'surfaceBackend', label: 'Backend', type: 'select', options: [['welded', 'Welded volume'], ['patch', 'Surface patch']] },
   { key: 'manualMeshing', label: 'Manual meshing', type: 'check' },
 
-  { type: 'section', label: 'Stroke' },
+  { type: 'section', label: 'Stroke', open: true },
   { key: 'symmetry', label: 'Symmetry', type: 'range', min: 1, max: 12, step: 1, int: true },
   { key: 'mirror', label: 'Mirror', type: 'check' },
   { key: 'flow', label: 'Flow', type: 'range', min: 0, max: 10, step: 1, int: true },
   { key: 'cvRadiusScale', label: 'New point width ×', type: 'range', min: MIN_CV_RADIUS_SCALE, max: MAX_CV_RADIUS_SCALE, step: 0.01, forge: 'surface-cv' },
   { key: 'showActiveCvs', label: 'Show curve points', type: 'check', forge: 'surface-cv' },
   { key: 'guides', label: 'Curves', type: 'check' },
+  { type: 'hostReset' },
 
+  { type: 'group' },
   { type: 'section', label: 'Welded volume', forge: 'welded' },
   { key: 'relief', label: 'Relief', type: 'select', options: [['carve', 'carve (peaked)'], ['plateau', 'plateau'], ['round', 'round']] },
   { key: 'melt', label: 'Melt', type: 'range', min: 0, max: 1, step: 0.01 },
@@ -43,6 +46,7 @@ export const SURFACE_CONTROL_SPECS = [
   { type: 'section', label: 'Thorns', forge: 'welded' },
   { key: 'thorns', label: 'Density', type: 'range', min: 0, max: 1, step: 0.01 },
   { key: 'spike', label: 'Spike', type: 'range', min: 1, max: 7, step: 0.1 },
+  { type: 'hostReset' },
 
   { type: 'section', label: 'Surface patch', forge: 'patch' },
   { key: 'patchRelief', label: 'Relief', type: 'select', options: [['round', 'round (liquid)'], ['carve', 'carve (peaked)'], ['plateau', 'plateau']] },
@@ -52,13 +56,17 @@ export const SURFACE_CONTROL_SPECS = [
   { key: 'patchTaperPower', label: 'Taper shape', type: 'range', min: 0.3, max: 2.4, step: 0.05 },
   { key: 'patchPolish', label: 'Liquid polish', type: 'range', min: 0, max: 16, step: 1, int: true },
 
-  { type: 'details', label: 'MATERIAL OVERRIDES' },
+  { type: 'group' },
+  { type: 'section', label: 'Chrome', open: true },
+  { key: 'color', label: 'Color', type: 'color', live: true },
+  { key: 'metalness', label: 'Metalness', type: 'range', min: 0, max: 1, step: 0.01, live: true },
+  { key: 'rough', label: 'Rough', type: 'range', min: 0, max: 1, step: 0.01, live: true },
+
+  { type: 'section', label: 'Target' },
   { key: 'targetColor', label: 'Base color', type: 'color', live: true },
   { key: 'targetMetalness', label: 'Metalness', type: 'range', min: 0, max: 1, step: 0.01, live: true },
   { key: 'targetRoughness', label: 'Roughness', type: 'range', min: 0, max: 1, step: 0.01, live: true },
-
-  { type: 'section', label: 'Chrome' },
-  { key: 'rough', label: 'Rough', type: 'range', min: 0, max: 0.05, step: 0.001, live: true },
+  { type: 'hostReset' },
 ];
 
 // world-unit resample step for conformed strokes; dense enough for the

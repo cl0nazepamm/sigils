@@ -29,7 +29,7 @@ export const DRAW_DEMO_DEFAULTS = {
   peak: 0.07,
   roughness: 0,
   profile: 'linear',
-  color: 0xffffff,
+  color: '#ffffff',
   envMapIntensity: 1.6,
   minDrawStep: 0.015,
 };

@@ -234,9 +234,11 @@ if (saved?.controls && typeof saved.controls === 'object') {
   for (const [key, value] of Object.entries(saved.controls)) {
     if (key in sharedState && typeof value === typeof sharedState[key]) sharedState[key] = value;
   }
-  // Chrome roughness is capped at 0.05 in the demo; older saves may exceed it.
-  if (typeof sharedState.roughness === 'number') {
-    sharedState.roughness = Math.min(sharedState.roughness, 0.05);
+  // Color picker wants #rrggbb; older saves may store a numeric THREE color.
+  if (typeof sharedState.color === 'number' && Number.isFinite(sharedState.color)) {
+    sharedState.color = `#${(sharedState.color >>> 0).toString(16).padStart(6, '0')}`;
+  } else if (typeof sharedState.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(sharedState.color)) {
+    sharedState.color = '#ffffff';
   }
   // Saved hybrid preference is meaningless on the WebGL path.
   if (ctx.renderBackend === 'webgl') sharedState.backend = 'cpu';

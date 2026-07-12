@@ -18,6 +18,7 @@ import { createDrawPlane } from '../shared/demoContext.js';
 import { mountControlPanel, syncControlPanelToState } from '../shared/controlPanel.js';
 import { DEMO_CONTROL_SPECS } from '../shared/demoControlSpecs.js';
 import { bindGlbExportButton } from '../shared/glbExport.js';
+import { bindSaveImageButton } from '../shared/saveImage.js';
 import { bindRightDragOrbit } from '../shared/orbit.js';
 import { bindUndoRedoKeys } from '../shared/hotkeys.js';
 import { createPhotonRig } from '../shared/photonRig.js';
@@ -109,9 +110,12 @@ export function mount(ctx, {
       <button id="export-glb" type="button">Export GLB</button>
       <button id="photon" type="button">Photon trace</button>
       <button id="pathtrace" type="button">Path trace</button>
+      <button id="save-png" type="button">Save PNG</button>
     </div>
-    <div id="photon-controls" hidden></div>
-    <div id="pathtrace-controls" hidden></div>
+    <div class="control-group beauty-controls">
+      <div id="photon-controls" hidden></div>
+      <div id="pathtrace-controls" hidden></div>
+    </div>
   `;
   infoRoot.innerHTML = `<b>Sigils Creator · Drawing</b><br /><span id="stats">—</span><br /><span class="hint pointer-hint-mouse" data-draw-hint></span><span class="hint pointer-hint-touch" data-draw-hint-touch></span>`;
 
@@ -274,12 +278,49 @@ export function mount(ctx, {
     undo: panelRoot.querySelector('#undo'),
     clear: panelRoot.querySelector('#clear'),
     exportGlb: panelRoot.querySelector('#export-glb'),
+    savePng: panelRoot.querySelector('#save-png'),
     photon: panelRoot.querySelector('#photon'),
     pathtrace: panelRoot.querySelector('#pathtrace'),
     toolButtons: [...panelRoot.querySelectorAll('[data-draw-tool]')],
   };
 
   bindGlbExportButton(ui.exportGlb, { strokes, state, renderer: computeRenderer, signal });
+  bindSaveImageButton(ui.savePng, {
+    signal,
+    getView: () => ({ renderer, scene, camera, THREE }),
+    prepareCapture: () => {
+      const prev = {
+        overlay: overlay.visible,
+        guides: guideGroup.visible,
+        draft: draftMesh.visible,
+        drag: dragMesh.visible,
+        freehand: freehandMesh.visible,
+      };
+      overlay.visible = false;
+      guideGroup.visible = false;
+      draftMesh.visible = false;
+      dragMesh.visible = false;
+      freehandMesh.visible = false;
+      ctx.setRasterBackdropHidden?.('savePng', true);
+      return () => {
+        overlay.visible = prev.overlay;
+        guideGroup.visible = prev.guides;
+        draftMesh.visible = prev.draft;
+        dragMesh.visible = prev.drag;
+        freehandMesh.visible = prev.freehand;
+        ctx.setRasterBackdropHidden?.('savePng', false);
+      };
+    },
+    drawBeauty: () => {
+      if (pathTrace.active) {
+        pathTrace.setHold(true);
+        pathTrace.render();
+        return;
+      }
+      photon.update();
+      renderer.render(scene, camera);
+    },
+  });
   bindRightDragOrbit(ctx, {
     signal,
     getCamera: () => camera,
@@ -451,32 +492,32 @@ export function mount(ctx, {
         touch = 'drag: paint · lift: finish stroke';
       } else if (selectionBlocked()) {
         mouse = 'left-drag: draw only · selection blocked · right-drag: orbit · pan: middle';
-        touch = 'draw: one finger · selection blocked · two fingers: pan/zoom';
+        touch = 'draw: one finger · selection blocked · two fingers: orbit/zoom · pan: three fingers';
       } else if (activeRecord) {
         mouse = 'left-drag: draw · Delete: remove selected · Tab: cycle · Shift-click: draw over · middle-click curve: insert · right-drag: orbit';
-        touch = 'draw: one finger · tap stroke: switch · two fingers: pan/zoom';
+        touch = 'draw: one finger · tap stroke: switch · two fingers: orbit/zoom · pan: three fingers';
       } else {
         mouse = 'left-drag: draw · click stroke / Tab: select · Shift-click: draw over · right-drag: orbit · pan: middle';
-        touch = 'draw: one finger · tap stroke: select · two fingers: pan/zoom';
+        touch = 'draw: one finger · tap stroke: select · two fingers: orbit/zoom · pan: three fingers';
       }
     } else if (draft) {
       const canClose = draft.cvs.length >= CLOSE_MIN_CVS;
       mouse = canClose
         ? 'left-click: add CV · drag: place · right-click CV: delete · click first CV: close · dblclick empty / Enter: commit · Esc: cancel · Backspace: pop last'
         : 'left-click: add CV · drag: place · right-click CV: delete · Enter: commit (2+ CVs) · Esc: cancel · Backspace: pop last';
-      touch = 'tap: add CV · drag: place · tap first CV: close · two fingers: pan/zoom';
+      touch = 'tap: add CV · drag: place · tap first CV: close · two fingers: orbit/zoom · pan: three fingers';
     } else if (selectionBlocked()) {
       mouse = 'left-click: place CV · selection blocked · right-drag: orbit';
-      touch = 'tap: place CV · selection blocked · two fingers: pan/zoom';
+      touch = 'tap: place CV · selection blocked · two fingers: orbit/zoom · pan: three fingers';
     } else if (activeRecord && isSplineRecord(activeRecord) && state.showActiveCvs) {
       mouse = 'left-drag: move CV · drag ring: radius · middle-click: insert CV · right-click CV: delete · dblclick end: continue · Delete: remove stroke · Esc: deselect · right-drag: orbit';
-      touch = 'drag dot: move · drag ring: radius · tap stroke: switch · two fingers: pan/zoom';
+      touch = 'drag dot: move · drag ring: radius · tap stroke: switch · two fingers: orbit/zoom · pan: three fingers';
     } else if (activeRecord) {
       mouse = 'click stroke: select · Tab: cycle · Delete: remove · Shift-click: new · left-click empty: start curve · right-drag: orbit';
-      touch = 'tap stroke: switch · tap empty: start curve · two fingers: pan/zoom';
+      touch = 'tap stroke: switch · tap empty: start curve · two fingers: orbit/zoom · pan: three fingers';
     } else {
       mouse = 'left-click: place CV · click stroke / Tab: select · Shift-click: new · right-drag: orbit';
-      touch = 'tap: place CV · tap stroke: select · two fingers: pan/zoom';
+      touch = 'tap: place CV · tap stroke: select · two fingers: orbit/zoom · pan: three fingers';
     }
 
     if (mouseHint) mouseHint.textContent = mouse;

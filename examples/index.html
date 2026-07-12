@@ -223,6 +223,22 @@
         box-shadow: inset 1px 1px 1px #fff, inset -1px -1px 1px rgba(0,0,0,0.22);
       }
       .control-section:first-of-type { margin-top: 0; }
+      .control-group {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .control-group:first-child { margin-top: 0; }
+      .control-group > .control-section { margin-top: 0; }
+      /* Drop empty forge groups (all section children hidden). */
+      .control-group:not(:has(> .control-section:not([hidden]))) {
+        display: none;
+      }
+      .beauty-controls {
+        margin-top: 10px;
+      }
+      .beauty-controls > [hidden] { display: none !important; }
       .control-section.main {
         border-color: #176a8c;
         border-top-color: #e8f7ff;
@@ -397,6 +413,15 @@
         gap: 6px;
         margin-top: 9px;
       }
+      /* Odd leftover on the last row spans full width instead of leaving a hole. */
+      .buttons > :last-child:nth-child(odd) {
+        grid-column: 1 / -1;
+      }
+      .env-hdri-buttons {
+        margin-top: 6px;
+        grid-template-columns: 1fr 1fr;
+      }
+      .env-hdri-section .env-hdri-buttons { margin-top: 6px; }
       .mesh-tools-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -437,10 +462,19 @@
       }
       .buttons button:disabled,
       .mesh-tools-grid button:disabled { opacity: 0.35; cursor: not-allowed; }
+      .buttons button.active {
+        color: #03131b;
+        border-color: #176a8c;
+        background: linear-gradient(to bottom, #bcecff, #59bfe8);
+        box-shadow: inset 1px 1px 4px rgba(0,65,92,0.35), 0 0 0 1px rgba(111,208,255,0.35);
+      }
       .mode-switch select option:disabled { color: #888; }
       .control-row select:disabled,
       .control-row select option:disabled { opacity: 0.55; cursor: not-allowed; }
       .control-details { padding-top: 8px; }
+      .control-details > summary.section-title { margin-bottom: 6px; }
+      .control-details:not([open]) { padding-bottom: 7px; }
+      .control-details:not([open]) > summary.section-title { margin-bottom: 0; }
       .control-details summary { cursor: pointer; list-style: none; }
       .control-details summary::-webkit-details-marker { display: none; }
       .control-details summary::before {
@@ -518,10 +552,11 @@
           grid-template-columns: repeat(3, minmax(0, 1fr));
           margin: 0 0 10px;
         }
+        .buttons > :last-child:nth-child(odd) { grid-column: auto; }
+        .buttons > :last-child:nth-child(3n+1) { grid-column: 1 / -1; }
         #controls { order: 2; }
         .mesh-tools { order: 3; }
-        #photon-controls,
-        #pathtrace-controls { order: 4; }
+        .beauty-controls { order: 4; }
         .mode-head h2 { margin-bottom: 8px; font-size: 13px; }
         .control-section { padding: 7px 8px 8px; }
         .section-title { margin-bottom: 5px; font-size: 9px; }
@@ -581,7 +616,10 @@
           align-items: start;
         }
         #controls > .control-section { margin-top: 0; }
+        #controls > .control-group { grid-column: 1 / -1; margin-top: 0; }
         .buttons { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .buttons > :last-child:nth-child(odd) { grid-column: auto; }
+        .buttons > :last-child:nth-child(3n+1) { grid-column: 1 / -1; }
         #info {
           bottom: calc(min(45dvh, 520px) + 16px);
           max-width: calc(100vw - 24px);

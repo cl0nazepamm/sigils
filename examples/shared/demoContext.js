@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { color, float, fract, fwidth, normalView, positionGeometry, positionView, positionWorld, smoothstep } from 'three/tsl';
+import { createDemoEnvironment } from './demoEnvironment.js';
 
 const FORCE_WEBGL_KEY = 'sigils.forceWebGL';
 
@@ -52,13 +52,13 @@ export async function createDemoContext() {
   controls.enableDamping = false;
   controls.target.set(0, 0, 0);
   // One finger is reserved for drawing/painting in every mode (matching
-  // LEFT: null on the mouse map). Flat modes use the drawing-app convention:
-  // two fingers pan + pinch-zoom. Paint on Mesh temporarily swaps this to
-  // orbit + pinch-zoom and uses the shared three-finger pan below.
-  controls.touches = { ONE: null, TWO: THREE.TOUCH.DOLLY_PAN };
+  // LEFT: null on the mouse map). Two fingers orbit + pinch-zoom (same job as
+  // right-drag orbit on mouse). OrbitControls has no three-finger map, so the
+  // small pan layer below covers pan on touch.
+  controls.touches = { ONE: null, TWO: THREE.TOUCH.DOLLY_ROTATE };
 
-  // OrbitControls has no three-finger mapping. Add one small screen-space pan
-  // layer so 3D paint mode can keep two-finger orbit without losing pan.
+  // OrbitControls has no three-finger mapping. Screen-space pan keeps touch
+  // navigation complete alongside two-finger orbit/zoom.
   const panTouches = new Map();
   const panRight = new THREE.Vector3();
   const panUp = new THREE.Vector3();
@@ -183,7 +183,7 @@ export async function createDemoContext() {
   updateCameraProjection();
 
   const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  const environment = createDemoEnvironment({ THREE, renderer, scene, pmrem });
 
   let resizeHandler = null;
   let animationLoop = null;
@@ -234,8 +234,8 @@ export async function createDemoContext() {
     renderer.domElement.removeEventListener('pointercancel', trackPanPointerEnd, true);
     renderer.setAnimationLoop(null);
     clearScene({ includePersistent: true });
+    environment.dispose();
     pmrem.dispose();
-    scene.environment?.dispose?.();
     renderer.dispose();
     renderer.domElement.remove();
   }
@@ -251,6 +251,7 @@ export async function createDemoContext() {
     },
     controls,
     pmrem,
+    environment,
     getActiveCamera,
     setCameraHome,
     setOrthographicView,

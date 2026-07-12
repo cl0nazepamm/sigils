@@ -1,10 +1,16 @@
 /**
  * Spec-driven control panel for the sigils demo.
+ *
+ * Layout tokens:
+ *   section / details — collapsible panel (section is details with optional open)
+ *   group             — wrap following panels in a side-by-side row until hostReset
+ *   hostReset         — stop nesting into the current group/details
  */
 
 export function mountControlPanel(root, specs, state, { onChange, onLive, signal, defaults = {} } = {}) {
   const ui = new Map();
   let host = root;
+  let group = null;
   const menu = createResetMenu(root.ownerDocument ?? document, signal);
 
   function commit(spec, input, row, value) {
@@ -14,37 +20,39 @@ export function mountControlPanel(root, specs, state, { onChange, onLive, signal
     (spec.live ? onLive : onChange)?.(spec.key, next);
   }
 
-  for (const spec of specs) {
-    if (spec.type === 'section') {
-      const section = document.createElement('section');
-      section.className = 'control-section';
-      if (spec.main) section.classList.add('main');
-      if (spec.forge) section.classList.add(`forge-${spec.forge}`);
-      const title = document.createElement('div');
-      title.className = 'section-title';
-      title.textContent = spec.label;
-      section.appendChild(title);
-      root.appendChild(section);
-      host = section;
-      continue;
-    }
+  function appendPanel(el) {
+    (group ?? root).appendChild(el);
+    host = el;
+  }
 
-    if (spec.type === 'details') {
-      const details = document.createElement('details');
-      details.className = 'control-section control-details';
-      if (spec.main) details.classList.add('main');
-      if (spec.forge) details.classList.add(`forge-${spec.forge}`);
-      const summary = document.createElement('summary');
-      summary.className = 'section-title';
-      summary.textContent = spec.label;
-      details.appendChild(summary);
-      root.appendChild(details);
-      host = details;
+  for (const spec of specs) {
+    if (spec.type === 'group') {
+      group = document.createElement('div');
+      group.className = 'control-group';
+      if (spec.className) group.classList.add(spec.className);
+      root.appendChild(group);
+      host = group;
       continue;
     }
 
     if (spec.type === 'hostReset') {
+      group = null;
       host = root;
+      continue;
+    }
+
+    if (spec.type === 'section' || spec.type === 'details') {
+      const details = document.createElement('details');
+      details.className = 'control-section control-details';
+      if (spec.main) details.classList.add('main');
+      if (spec.forge) details.classList.add(`forge-${spec.forge}`);
+      // Main and explicitly open panels start expanded; others stay collapsed.
+      details.open = spec.open === true || (spec.main === true && spec.open !== false);
+      const summary = document.createElement('summary');
+      summary.className = 'section-title';
+      summary.textContent = spec.label;
+      details.appendChild(summary);
+      appendPanel(details);
       continue;
     }
 

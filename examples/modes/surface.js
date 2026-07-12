@@ -28,6 +28,7 @@ import { createMeshIndex } from '../../src/index.js';
 import { bindRightDragOrbit } from '../shared/orbit.js';
 import { bindUndoRedoKeys } from '../shared/hotkeys.js';
 import { bindMeshGlbExportButton } from '../shared/glbExport.js';
+import { bindSaveImageButton } from '../shared/saveImage.js';
 import { createPathTraceRig } from '../shared/pathTraceRig.js';
 import { mountControlPanel, syncControlPanelToState } from '../shared/controlPanel.js';
 import { createInactiveTraceRigs, markUnsupported } from '../shared/unsupportedUi.js';
@@ -144,8 +145,13 @@ export function mount(ctx, {
   const local = (store.settings ??= { ...SURFACE_DEFAULTS });
   for (const [key, value] of Object.entries(SURFACE_DEFAULTS)) local[key] ??= value;
   if (!/^#[0-9a-f]{6}$/i.test(local.targetColor)) local.targetColor = SURFACE_DEFAULTS.targetColor;
-  // Stores from before the control existed (or from the wider old range).
-  local.rough = Math.min(local.rough ?? SURFACE_DEFAULTS.rough, 0.05);
+  if (typeof local.color === 'number' && Number.isFinite(local.color)) {
+    local.color = `#${(local.color >>> 0).toString(16).padStart(6, '0')}`;
+  } else if (!/^#[0-9a-f]{6}$/i.test(local.color)) {
+    local.color = SURFACE_DEFAULTS.color;
+  }
+  if (!(local.metalness >= 0 && local.metalness <= 1)) local.metalness = SURFACE_DEFAULTS.metalness;
+  if (!(local.rough >= 0 && local.rough <= 1)) local.rough = SURFACE_DEFAULTS.rough;
   // Peak switched from absolute height to a ×width ratio; old absolute
   // values below the shallow-carve floor still get reset.
   if (!(local.peak >= 0.05 && local.peak <= 3)) local.peak = SURFACE_DEFAULTS.peak;
@@ -222,8 +228,17 @@ export function mount(ctx, {
   scene.add(fillLight);
 
   const vineMaterial = new THREE.MeshStandardMaterial({
-    metalness: 1, roughness: local.rough, envMapIntensity: 1.8,
+    color: local.color,
+    metalness: local.metalness,
+    roughness: local.rough,
+    envMapIntensity: 1.8,
   });
+  function applyChromePbr() {
+    vineMaterial.color.set(local.color);
+    vineMaterial.metalness = local.metalness;
+    vineMaterial.roughness = local.rough;
+    vineMaterial.needsUpdate = true;
+  }
   const drawCurveMaterial = new THREE.LineBasicMaterial({
     color: 0xffffff,
     depthTest: false,
@@ -1991,9 +2006,12 @@ export function mount(ctx, {
       <button id="import-glb" type="button">Import mesh</button>
       <button id="export-glb" type="button">Export GLB</button>
       <button id="pathtrace" type="button">Path trace</button>
+      <button id="save-png" type="button">Save PNG</button>
     </div>
     <input id="import-glb-file" type="file" accept=".glb,model/gltf-binary" hidden />
-    <div id="pathtrace-controls" hidden></div>
+    <div class="control-group beauty-controls">
+      <div id="pathtrace-controls" hidden></div>
+    </div>
   `;
   infoRoot.innerHTML = '<b>Sigils Creator · Paint on Mesh</b><br /><span id="stats">—</span><br /><span class="hint pointer-hint-mouse"></span><span class="hint pointer-hint-touch"></span>';
   const controlsRoot = panelRoot.querySelector('#controls');
@@ -2043,9 +2061,8 @@ export function mount(ctx, {
       requestPersist();
     },
     onLive: (key) => {
-      if (key === 'rough') {
-        vineMaterial.roughness = local.rough;
-        vineMaterial.needsUpdate = true;
+      if (key === 'rough' || key === 'color' || key === 'metalness') {
+        applyChromePbr();
         pathTrace.syncSigil(); // tracer reads vineMaterial directly (scene mode)
       }
       if (key.startsWith('target')) {
@@ -2109,8 +2126,7 @@ export function mount(ctx, {
     syncRadiusControl();
     refreshGuides();
     refreshDrawCurve();
-    vineMaterial.roughness = local.rough;
-    vineMaterial.needsUpdate = true;
+    applyChromePbr();
     applyTargetPbr();
     rebuildField({ reconform: true });
     requestPersist();
@@ -2274,6 +2290,34 @@ export function mount(ctx, {
       root.quaternion.copy(vineGroup.quaternion);
       root.scale.copy(vineGroup.scale);
       return root;
+    },
+  });
+
+  bindSaveImageButton(panelRoot.querySelector('#save-png'), {
+    signal,
+    getView: () => ({ renderer, scene, camera, THREE }),
+    prepareCapture: () => {
+      const prev = {
+        overlay: overlay.visible,
+        guides: guideGroup.visible,
+        drawCurve: drawCurve?.visible ?? false,
+      };
+      overlay.visible = false;
+      guideGroup.visible = false;
+      if (drawCurve) drawCurve.visible = false;
+      return () => {
+        overlay.visible = prev.overlay;
+        guideGroup.visible = prev.guides;
+        if (drawCurve) drawCurve.visible = prev.drawCurve;
+      };
+    },
+    drawBeauty: () => {
+      if (pathTrace.active) {
+        pathTrace.setHold(true);
+        pathTrace.render();
+        return;
+      }
+      renderer.render(scene, camera);
     },
   });
 

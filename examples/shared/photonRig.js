@@ -32,7 +32,7 @@ const PHOTON_DEFAULTS = {
   followCamera: true,
 };
 const PHOTON_CONTROL_SPECS = [
-  { type: 'section', label: 'Photon light' },
+  { type: 'section', label: 'Photon light', open: true },
   { key: 'followCamera', label: 'Cam lock', type: 'check', live: true },
   { key: 'lightOrbit', label: 'Orbit', type: 'range', min: -80, max: 80, step: 1, int: true, live: true },
   { key: 'lightLift', label: 'Lift', type: 'range', min: -8, max: 70, step: 1, int: true, live: true },

@@ -16,7 +16,6 @@
 
 import { createSpectralTracer } from 'speedball-gi/spectral-tracer';
 import { bakeChromeGeometryForGlb } from './glbExport.js';
-import { PT_ENV_DATA_URI } from './ptEnvMap.js';
 import { mountControlPanel, syncControlPanelToState } from './controlPanel.js';
 import { setOrthographicLocked } from './unsupportedUi.js';
 import { chromeOptionsFromState } from './sigilDefaults.js';
@@ -31,7 +30,7 @@ import { chromeOptionsFromState } from './sigilDefaults.js';
 const ENV_INTENSITY_SCALE = 2;
 const PT_DEFAULTS = { sampleLimit: 2048, envIntensity: 1, envRotation: 0, envBackground: false };
 const PT_CONTROL_SPECS = [
-  { type: 'section', label: 'Path trace' },
+  { type: 'section', label: 'Path trace', open: true },
   { key: 'sampleLimit', label: 'SPP limit', type: 'range', min: 64, max: 8192, step: 64, int: true, live: true },
   { key: 'envIntensity', label: 'HDRI brightness', type: 'range', min: 0, max: 5, step: 0.05, live: true },
   { key: 'envRotation', label: 'HDRI rotation', type: 'range', min: -180, max: 180, step: 1, int: true, live: true },
@@ -46,69 +45,7 @@ const PT_CONTROL_SPECS = [
 const MOTION_TRACE_INTERVAL = 3;
 const MOTION_EPSILON = 1e-6; // matches the tracer's CAMERA_MATRIX_EPSILON
 
-/**
- * The raster env is a PMREM cube-UV atlas (RoomEnvironment) — the tracer
- * samples environments as EQUIRECT panoramas (three's equirectUV, v=1 up), so
- * feeding it the atlas shreds the reflections into patchwork. The tracer
- * checks scene.userData.maxjsPathTraceEnvironment first; hand it a procedural
- * studio panorama that reads like the room: dark floor, neutral walls,
- * brighter ceiling, and a few softbox panels for crisp chrome highlights.
- */
-function makeStudioEnvTexture(THREE) {
-  const W = 512, H = 256;
-  const data = new Float32Array(W * H * 4);
-  // Chrome reads as metal only when the env has hard luminance structure: a
-  // mirror reflecting a smooth gradient is indistinguishable from gray
-  // plastic. So: near-black floor with a hard horizon break, a ring of hot
-  // rectangular panels with dark gaps between them, and a hot ceiling cap —
-  // the same recipe that makes RoomEnvironment flatter metal.
-  // Strictly neutral (equal-RGB) panels: any tint here reads as a color cast
-  // on the chrome after the spectral round trip, and the user wants D65 white.
-  const panels = [];
-  for (let k = 0; k < 5; k++) {
-    const az = -Math.PI + ((k + 0.5) / 5) * 2 * Math.PI;
-    panels.push({
-      az, el: 0.28, halfAz: 0.30, halfEl: 0.42,
-      gain: k % 2 === 0 ? 13 : 5,
-    });
-  }
-  for (let y = 0; y < H; y++) {
-    const el = ((y + 0.5) / H - 0.5) * Math.PI; // -π/2 floor … +π/2 ceiling
-    // hard-stepped room bands (tiny blends so they don't alias)
-    const floorToWall = Math.min(1, Math.max(0, (el + 0.42) / 0.05));
-    const wallToCeil = Math.min(1, Math.max(0, (el - 0.9) / 0.06));
-    const base = 0.015 + (0.07 - 0.015) * floorToWall + (0.16 - 0.07) * wallToCeil;
-    // hot ceiling cap straight up
-    const cap = el > 1.22 ? 15 : 0;
-    for (let x = 0; x < W; x++) {
-      const az = ((x + 0.5) / W) * 2 * Math.PI - Math.PI;
-      let r = base + cap, g = base + cap, b = base + cap;
-      for (const p of panels) {
-        let dAz = Math.abs(az - p.az);
-        dAz = Math.min(dAz, 2 * Math.PI - dAz);
-        const edge = 1 - Math.max(dAz / p.halfAz, Math.abs(el - p.el) / p.halfEl);
-        if (edge <= 0) continue;
-        const s = Math.min(1, edge * 8); // hard panel edge — this IS the metal look
-        const add = p.gain * s;
-        r += add;
-        g += add;
-        b += add;
-      }
-      const i = (y * W + x) * 4;
-      data[i] = r;
-      data[i + 1] = g;
-      data[i + 2] = b;
-      data[i + 3] = 1;
-    }
-  }
-  const tex = new THREE.DataTexture(data, W, H, THREE.RGBAFormat, THREE.FloatType);
-  tex.wrapS = THREE.RepeatWrapping; // azimuth seam
-  tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  tex.needsUpdate = true;
-  return tex;
-}
+const HDRI_ACCEPT = '.hdr,.exr,.jpg,.jpeg,.png,.webp,image/vnd.radiance,image/*';
 
 export function createPathTraceRig(ctx, {
   sigilMesh = null,   // TSL-displaced sigil to bake for tracing…
@@ -119,7 +56,7 @@ export function createPathTraceRig(ctx, {
   onCameraChange = null, // modes keep a local `camera`; notify when we force perspective
   button, panel, getCamera, setStatus, onToggle, signal,
 }) {
-  const { THREE, renderer, scene, controls, setRasterBackdropHidden, setOrthographicView } = ctx;
+  const { THREE, renderer, scene, controls, setRasterBackdropHidden, setOrthographicView, environment } = ctx;
   // Bake mode (Drawing): the displaced chrome needs a baked copy.
   // Scene mode (Paint on Mesh): everything is already real geometry with
   // standard materials — the tracer ingests the live scene as-is.
@@ -177,6 +114,86 @@ export function createPathTraceRig(ctx, {
   const lastMatrix = new THREE.Matrix4().makeScale(0, 0, 0); // never matches frame 1
   let motionFrames = 0;
 
+  // HDRI load/reset — always-visible collapsible next to Path Trace / Photon
+  // (same beauty control-group) so RoomEnvironment can be swapped in raster too.
+  let loadHdriBtn = null;
+  let resetHdriBtn = null;
+  if (panel && environment) {
+    const envSection = document.createElement('details');
+    envSection.className = 'control-section control-details env-hdri-section';
+    envSection.open = true;
+    const title = document.createElement('summary');
+    title.className = 'section-title';
+    title.textContent = 'Environment';
+    const envRow = document.createElement('div');
+    envRow.className = 'buttons env-hdri-buttons';
+    loadHdriBtn = document.createElement('button');
+    loadHdriBtn.type = 'button';
+    loadHdriBtn.textContent = 'Load HDRI';
+    resetHdriBtn = document.createElement('button');
+    resetHdriBtn.type = 'button';
+    resetHdriBtn.textContent = 'Reset HDRI';
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = HDRI_ACCEPT;
+    fileInput.hidden = true;
+    envRow.append(loadHdriBtn, resetHdriBtn, fileInput);
+    envSection.append(title, envRow);
+    const beautyHost = panel.parentElement?.classList.contains('control-group')
+      ? panel.parentElement
+      : null;
+    if (beautyHost) beautyHost.appendChild(envSection);
+    else panel.insertAdjacentElement('afterend', envSection);
+
+    function syncHdriButtons() {
+      resetHdriBtn.disabled = !environment.custom;
+      if (!loadHdriBtn.disabled) {
+        loadHdriBtn.textContent = environment.custom ? 'Replace HDRI' : 'Load HDRI';
+      }
+    }
+    syncHdriButtons();
+
+    const unsubEnv = environment.onChange(() => {
+      syncHdriButtons();
+      if (active) tracer?.markSceneDirty();
+    });
+    signal?.addEventListener('abort', () => {
+      unsubEnv();
+      envSection.remove();
+    }, { once: true });
+
+    loadHdriBtn.addEventListener('click', () => {
+      if (loadHdriBtn.disabled) return;
+      fileInput.value = '';
+      fileInput.click();
+    }, { signal });
+
+    resetHdriBtn.addEventListener('click', () => {
+      if (resetHdriBtn.disabled) return;
+      environment.reset();
+      setStatus?.('HDRI reset to default');
+      if (active) tracer?.markSceneDirty();
+    }, { signal });
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      loadHdriBtn.disabled = true;
+      loadHdriBtn.textContent = 'Loading…';
+      try {
+        const loaded = await environment.loadFromFile(file);
+        setStatus?.(`HDRI · ${loaded.name}`);
+        if (active) tracer?.markSceneDirty();
+      } catch (error) {
+        console.error('HDRI load failed', error);
+        setStatus?.('HDRI load failed');
+      } finally {
+        loadHdriBtn.disabled = false;
+        syncHdriButtons();
+      }
+    }, { signal });
+  }
+
   function cameraMoved(camera) {
     camera.updateMatrixWorld();
     const m = camera.matrixWorld.elements;
@@ -229,7 +246,6 @@ export function createPathTraceRig(ctx, {
     return true;
   }
 
-  let envTexture = null;
   let prevEnvIntensity = null; // raster value to restore when PT disarms
   let prevEnvRotation = null;
 
@@ -241,28 +257,8 @@ export function createPathTraceRig(ctx, {
 
   function ensureTracer() {
     if (tracer) return;
-    // Equirect env override for the tracer only — raster keeps its PMREM.
-    // Reuse the loaded panorama across drop/recreate so HDRI isn't re-fetched
-    // on every sync; only the first arm builds the studio fallback + swap-in.
-    if (!envTexture) {
-      envTexture = makeStudioEnvTexture(THREE);
-      new THREE.TextureLoader().load(PT_ENV_DATA_URI, (tex) => {
-        if (signal?.aborted || !envTexture) {
-          tex.dispose();
-          return;
-        }
-        tex.colorSpace = THREE.SRGBColorSpace; // LDR decodes on sample
-        tex.minFilter = THREE.LinearFilter;
-        tex.magFilter = THREE.LinearFilter;
-        tex.wrapS = THREE.RepeatWrapping; // azimuth seam
-        tex.wrapT = THREE.ClampToEdgeWrapping;
-        envTexture.dispose();
-        envTexture = tex;
-        scene.userData.maxjsPathTraceEnvironment = envTexture;
-        tracer?.markSceneDirty(); // env texture bakes at scene build
-      });
-    }
-    scene.userData.maxjsPathTraceEnvironment = envTexture;
+    // Equirect for the tracer — shared with raster via ctx.environment.
+    environment?.ensurePathTraceEnvironment();
     tracer = createSpectralTracer({
       renderer,
       scene,
@@ -392,6 +388,12 @@ export function createPathTraceRig(ctx, {
       } else if (key === 'roughness') {
         bakedMesh.material.roughness = state.roughness ?? 0;
         tracer?.markSceneDirty();
+      } else if (key === 'metalness') {
+        bakedMesh.material.metalness = state.metalness ?? 1;
+        tracer?.markSceneDirty();
+      } else if (key === 'color') {
+        bakedMesh.material.color.set(state.color ?? '#ffffff');
+        tracer?.markSceneDirty();
       }
     },
     /**
@@ -446,11 +448,6 @@ export function createPathTraceRig(ctx, {
       setRasterBackdropHidden?.('pathTrace', false);
       disposeBaked();
       dropTracer();
-      if (scene.userData.maxjsPathTraceEnvironment === envTexture) {
-        delete scene.userData.maxjsPathTraceEnvironment;
-      }
-      envTexture?.dispose();
-      envTexture = null;
       if (prevEnvIntensity !== null) {
         scene.environmentIntensity = prevEnvIntensity;
         prevEnvIntensity = null;

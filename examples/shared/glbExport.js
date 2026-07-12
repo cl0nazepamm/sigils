@@ -100,7 +100,7 @@ export async function buildCommittedGlb(strokes, state, renderer) {
   const material = new MeshStandardMaterial({
     color: chrome.color,
     metalness: chrome.metalness ?? 1,
-    roughness: chrome.roughness ?? 0.05,
+    roughness: chrome.roughness ?? 0,
     side: DoubleSide,
   });
   material.name = 'polished-metal';

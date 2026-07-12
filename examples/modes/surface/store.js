@@ -29,7 +29,9 @@ export const SURFACE_DEFAULTS = {
   flow: 3,          // smoothing passes on the painted line
   mirror: false,    // captured per stroke with symmetry (like Drawing)
   symmetry: 1,      // N-fold radial copies around the target center, per stroke
-  rough: 0,         // vine chrome roughness (0 = mirror; demo caps at 0.05)
+  rough: 0,         // vine chrome roughness (0 = mirror)
+  color: '#ffffff', // vine chrome tint
+  metalness: 1,
   patchRelief: 'round',
   patchHeight: 0.08,   // absolute world-unit displacement, independent of width
   patchFalloff: 0.4,   // fraction of the full stroke width
